@@ -8,10 +8,12 @@ from scrapers.workday import scrape_workday
 GREENHOUSE_COMPANIES = {
     "Hootsuite": "hootsuite",
     "Faire": "faire",
+    "D2L": "d2l",
 }
 
 LEVER_COMPANIES = {
     "Wattpad": "wattpad",
+    "Wealthsimple": "wealthsimple",
 }
 
 # tenant, wd host (e.g. "wd3"), site name
