@@ -1,4 +1,5 @@
 from scrapers.base import Job
+from scrapers.github_aggregator import scrape_github_aggregator
 from scrapers.greenhouse import scrape_greenhouse
 from scrapers.lever import scrape_lever
 from scrapers.workday import scrape_workday
@@ -24,7 +25,10 @@ WORKDAY_COMPANIES = {
 
 
 def scrape_all_companies() -> list[Job]:
-    jobs = []
+    # Primary source: a community-maintained aggregator already covering
+    # hundreds of companies. Our hand-registered scrapers below supplement
+    # it for Canadian companies/postings it might miss.
+    jobs = scrape_github_aggregator()
     for company_name, board_token in GREENHOUSE_COMPANIES.items():
         jobs.extend(scrape_greenhouse(company_name, board_token))
     for company_name, company_token in LEVER_COMPANIES.items():
