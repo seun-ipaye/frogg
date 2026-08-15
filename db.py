@@ -1,4 +1,5 @@
 import hashlib
+import os
 import sqlite3
 from contextlib import contextmanager
 
@@ -35,6 +36,9 @@ def _connect():
 
 
 def init_db() -> None:
+    db_dir = os.path.dirname(DATABASE_PATH)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     with _connect() as conn:
         conn.execute(SCHEMA)
         conn.commit()
@@ -44,9 +48,9 @@ def insert_job(
     company: str,
     title: str,
     url: str,
+    source: str,
     location: str | None = None,
     job_type: str | None = None,
-    source: str | None = None,
     posted_at: str | None = None,
 ) -> bool:
     """Insert a job if it hasn't been seen before. Returns True if newly inserted."""
