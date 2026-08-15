@@ -4,43 +4,21 @@ from scrapers.companies import scrape_all_companies
 
 INTERN_KEYWORDS = ("intern", "co-op", "coop")
 
-CANADA_KEYWORDS = (
-    "canada",
-    "ontario",
-    "quebec",
-    "québec",
-    "british columbia",
-    "alberta",
-    "manitoba",
-    "saskatchewan",
-    "nova scotia",
-    "new brunswick",
-    "newfoundland",
-    "prince edward island",
-    "yukon",
-    "northwest territories",
-    "nunavut",
-    "toronto",
-    "vancouver",
-    "montreal",
-    "montréal",
-    "ottawa",
-    "calgary",
-    "edmonton",
-    "winnipeg",
-    "waterloo",
-    "kitchener",
-    "victoria",
-    "halifax",
-    "mississauga",
-    "markham",
-    "burnaby",
-    "richmond",
-    "surrey",
-)
+# City/province names are deliberately excluded: they collide with US
+# places (e.g. "Vancouver, WA", "Richmond, VA"). Every genuine Canadian
+# posting we've checked across sources explicitly includes "Canada" in
+# the location string, so that alone is both sufficient and precise.
+CANADA_KEYWORDS = ("canada",)
+
+# Sources that are already scoped to internship/co-op postings, so the
+# title keyword filter would just drop legitimate entries with titles
+# like "Summer Associate" or "Undergraduate Cartographer".
+PRE_FILTERED_SOURCES = ("github_aggregator",)
 
 
 def is_internship(job: Job) -> bool:
+    if job.source in PRE_FILTERED_SOURCES:
+        return True
     title = job.title.lower()
     return any(keyword in title for keyword in INTERN_KEYWORDS)
 
