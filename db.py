@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS channels (
     channel_id INTEGER PRIMARY KEY,
     guild_id INTEGER NOT NULL,
     guild_name TEXT,
+    priority_province TEXT,
     registered_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -49,12 +50,22 @@ def _connect():
         conn.close()
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """CREATE TABLE IF NOT EXISTS won't add new columns to a table that
+    already exists (e.g. the live Railway deploy's channels table predates
+    priority_province) - patch those in explicitly."""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(channels)").fetchall()}
+    if "priority_province" not in columns:
+        conn.execute("ALTER TABLE channels ADD COLUMN priority_province TEXT")
+
+
 def init_db() -> None:
     db_dir = os.path.dirname(DATABASE_PATH)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
     with _connect() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
 
 
@@ -85,16 +96,29 @@ def upsert_job(
         return row[0]
 
 
-def register_channel(channel_id: int, guild_id: int, guild_name: str | None) -> bool:
-    """Register a channel to receive postings. Returns True if newly
-    registered, False if it was already registered."""
+def register_channel(
+    channel_id: int, guild_id: int, guild_name: str | None, priority_province: str | None = None
+) -> bool:
+    """Register a channel to receive postings, or update its priority
+    province if it's already registered (so re-running !setup can change
+    the choice). Returns True if newly registered, False if it already
+    existed (regardless of whether the province changed)."""
     with _connect() as conn:
-        cursor = conn.execute(
-            "INSERT OR IGNORE INTO channels (channel_id, guild_id, guild_name) VALUES (?, ?, ?)",
-            (channel_id, guild_id, guild_name),
+        existed = conn.execute(
+            "SELECT 1 FROM channels WHERE channel_id = ?", (channel_id,)
+        ).fetchone() is not None
+        conn.execute(
+            """
+            INSERT INTO channels (channel_id, guild_id, guild_name, priority_province)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(channel_id) DO UPDATE SET
+                guild_name = excluded.guild_name,
+                priority_province = excluded.priority_province
+            """,
+            (channel_id, guild_id, guild_name, priority_province),
         )
         conn.commit()
-        return cursor.rowcount > 0
+        return not existed
 
 
 def unregister_channel(channel_id: int) -> bool:
@@ -106,16 +130,25 @@ def unregister_channel(channel_id: int) -> bool:
         return cursor.rowcount > 0
 
 
-def list_channel_ids() -> list[int]:
+def list_channels() -> list[tuple[int, str | None]]:
+    """Returns (channel_id, priority_province) for every registered channel."""
     with _connect() as conn:
-        rows = conn.execute("SELECT channel_id FROM channels").fetchall()
-        return [row[0] for row in rows]
+        rows = conn.execute("SELECT channel_id, priority_province FROM channels").fetchall()
+        return [(row[0], row[1]) for row in rows]
 
 
 def is_channel_registered(channel_id: int) -> bool:
     with _connect() as conn:
         row = conn.execute("SELECT 1 FROM channels WHERE channel_id = ?", (channel_id,)).fetchone()
         return row is not None
+
+
+def get_priority_province(channel_id: int) -> str | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT priority_province FROM channels WHERE channel_id = ?", (channel_id,)
+        ).fetchone()
+        return row[0] if row else None
 
 
 def get_unposted_job_ids(channel_id: int, job_ids: list[int]) -> set[int]:
