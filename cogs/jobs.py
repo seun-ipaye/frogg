@@ -7,14 +7,16 @@ from apscheduler.triggers.cron import CronTrigger
 from discord.ext import commands
 
 from db import (
+    get_priority_province,
     get_unposted_job_ids,
     is_channel_registered,
-    list_channel_ids,
+    list_channels,
     mark_posted,
     register_channel,
     unregister_channel,
 )
 from pipeline import run_pipeline
+from province import PROVINCES, detect_province
 from scrapers.base import Job
 
 # Fixed posting times rather than "every 6 hours from process start" - the
@@ -46,7 +48,7 @@ def _embed_char_count(embed: discord.Embed) -> int:
 logger = logging.getLogger(__name__)
 
 
-def build_job_embeds(jobs: list[Job]) -> list[discord.Embed]:
+def build_job_embeds(jobs: list[Job], section_title: str | None = None) -> list[discord.Embed]:
     """Pack jobs into embeds (JOBS_PER_EMBED fields each) so a large batch
     posts as a handful of messages instead of one message per job."""
     embeds = []
@@ -62,7 +64,8 @@ def build_job_embeds(jobs: list[Job]) -> list[discord.Embed]:
         embeds.append(embed)
 
     if embeds:
-        embeds[0].title = f"New Canadian Co-op/Internship Postings ({len(jobs)})"
+        title = section_title or "New Canadian Co-op/Internship Postings"
+        embeds[0].title = f"{title} ({len(jobs)})"
         embeds[-1].set_footer(text="Frogg 🐸")
         embeds[-1].timestamp = discord.utils.utcnow()
 
@@ -93,6 +96,43 @@ def batch_embeds_by_message(embeds: list[discord.Embed]) -> list[list[discord.Em
     return batches
 
 
+NO_PREFERENCE = ""  # dropdown option value for "All of Canada"
+
+
+class ProvinceSelect(discord.ui.Select):
+    def __init__(self, guild_id: int, guild_name: str | None):
+        self.guild_id = guild_id
+        self.guild_name = guild_name
+        options = [discord.SelectOption(label="All of Canada (no preference)", value=NO_PREFERENCE)] + [
+            discord.SelectOption(label=f"{name} ({code})", value=code) for name, code in PROVINCES
+        ]
+        super().__init__(placeholder="Choose a priority province...", options=options, min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        province = self.values[0] or None
+        register_channel(interaction.channel_id, self.guild_id, self.guild_name, priority_province=province)
+        label = province or "All of Canada (no preference)"
+        await interaction.response.edit_message(
+            content=(
+                f"This channel is registered for Frogg postings "
+                f"(automatically at 12am/6am/12pm/6pm ET). Priority location: **{label}**. "
+                "Run `!jobs` anytime to check manually."
+            ),
+            view=None,
+        )
+
+
+class ProvinceSelectView(discord.ui.View):
+    def __init__(self, guild_id: int, guild_name: str | None):
+        super().__init__(timeout=120)
+        self.message: discord.Message | None = None
+        self.add_item(ProvinceSelect(guild_id, guild_name))
+
+    async def on_timeout(self):
+        if self.message:
+            await self.message.edit(content="Setup timed out - run `!setup` again to register this channel.", view=None)
+
+
 class JobsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -109,15 +149,32 @@ class JobsCog(commands.Cog):
     async def cog_unload(self):
         self.scheduler.shutdown(wait=False)
 
-    async def _post_to_channel(self, channel: discord.abc.Messageable, matched_jobs: list[Job]) -> list[Job]:
+    async def _post_to_channel(
+        self, channel: discord.abc.Messageable, matched_jobs: list[Job], priority_province: str | None
+    ) -> list[Job]:
         """Post whichever of the given jobs this specific channel hasn't
-        seen yet, then record them as posted for this channel."""
+        seen yet, then record them as posted for this channel. If the
+        channel has a priority province, split the post into an
+        in-province section and a rest-of-Canada section."""
         unposted_ids = get_unposted_job_ids(channel.id, [job.id for job in matched_jobs])
         to_post = [job for job in matched_jobs if job.id in unposted_ids]
 
-        embeds = build_job_embeds(to_post)
-        for batch in batch_embeds_by_message(embeds):
-            await channel.send(embeds=batch)
+        if priority_province:
+            province_name = next((name for name, code in PROVINCES if code == priority_province), priority_province)
+            in_province_ids = {job.id for job in to_post if detect_province(job.location) == priority_province}
+            sections = [
+                (f"📍 Jobs in {province_name}", [job for job in to_post if job.id in in_province_ids]),
+                ("🍁 Rest of Canada", [job for job in to_post if job.id not in in_province_ids]),
+            ]
+        else:
+            sections = [(None, to_post)]
+
+        for title, jobs in sections:
+            if not jobs:
+                continue
+            embeds = build_job_embeds(jobs, section_title=title)
+            for batch in batch_embeds_by_message(embeds):
+                await channel.send(embeds=batch)
 
         for job in to_post:
             mark_posted(channel.id, job.id)
@@ -126,12 +183,12 @@ class JobsCog(commands.Cog):
 
     async def scheduled_scrape(self):
         matched_jobs = await asyncio.to_thread(run_pipeline)
-        for channel_id in list_channel_ids():
+        for channel_id, priority_province in list_channels():
             channel = self.bot.get_channel(channel_id)
             if channel is None:
                 logger.warning("Registered channel %s not found/accessible, skipping", channel_id)
                 continue
-            posted = await self._post_to_channel(channel, matched_jobs)
+            posted = await self._post_to_channel(channel, matched_jobs, priority_province)
             logger.info("Posted %d new job(s) to channel %s", len(posted), channel_id)
 
     @commands.command(name="jobs")
@@ -145,7 +202,8 @@ class JobsCog(commands.Cog):
 
         await ctx.send("Scraping for new postings...")
         matched_jobs = await asyncio.to_thread(run_pipeline)
-        posted = await self._post_to_channel(ctx.channel, matched_jobs)
+        priority_province = get_priority_province(ctx.channel.id)
+        posted = await self._post_to_channel(ctx.channel, matched_jobs, priority_province)
 
         if not posted:
             await ctx.send("No new Canadian co-op/internship postings found.")
@@ -153,14 +211,13 @@ class JobsCog(commands.Cog):
     @commands.command(name="setup")
     @commands.has_guild_permissions(manage_guild=True)
     async def setup_channel(self, ctx: commands.Context):
-        newly_registered = register_channel(ctx.channel.id, ctx.guild.id, ctx.guild.name)
-        if newly_registered:
-            await ctx.send(
-                "This channel is now registered for Frogg postings "
-                "(automatically at 12am/6am/12pm/6pm ET). Run `!jobs` anytime to check manually."
-            )
-        else:
-            await ctx.send("This channel is already registered.")
+        view = ProvinceSelectView(ctx.guild.id, ctx.guild.name)
+        view.message = await ctx.send(
+            "Pick a priority province for this channel — postings from it will be "
+            "shown separately from the rest of Canada. Choose \"All of Canada\" for "
+            "one combined list instead:",
+            view=view,
+        )
 
     @commands.command(name="stop")
     @commands.has_guild_permissions(manage_guild=True)
