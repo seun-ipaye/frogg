@@ -34,6 +34,11 @@ _PROVINCE_ALIASES: dict[str, tuple[str, ...]] = {
 }
 
 
+def province_name(code: str) -> str:
+    """Full display name for a province code, e.g. "ON" -> "Ontario"."""
+    return next((name for name, c in PROVINCES if c == code), code)
+
+
 def detect_province(location: str | None) -> str | None:
     """Return the single province/territory code a location string clearly
     indicates, or None if there isn't exactly one match - no match at all

@@ -16,7 +16,7 @@ from db import (
     unregister_channel,
 )
 from pipeline import run_pipeline
-from province import PROVINCES, detect_province
+from province import PROVINCES, detect_province, province_name
 from scrapers.base import Job
 
 # Fixed posting times rather than "every 6 hours from process start" - the
@@ -96,7 +96,7 @@ def batch_embeds_by_message(embeds: list[discord.Embed]) -> list[list[discord.Em
     return batches
 
 
-NO_PREFERENCE = ""  # dropdown option value for "All of Canada"
+NO_PREFERENCE = "ALL"  # dropdown option value for "All of Canada" - SelectOption.value can't be empty
 
 
 class ProvinceSelect(discord.ui.Select):
@@ -109,9 +109,9 @@ class ProvinceSelect(discord.ui.Select):
         super().__init__(placeholder="Choose a priority province...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction):
-        province = self.values[0] or None
+        province = None if self.values[0] == NO_PREFERENCE else self.values[0]
         register_channel(interaction.channel_id, self.guild_id, self.guild_name, priority_province=province)
-        label = province or "All of Canada (no preference)"
+        label = province_name(province) if province else "All of Canada (no preference)"
         await interaction.response.edit_message(
             content=(
                 f"This channel is registered for Frogg postings "
@@ -160,10 +160,9 @@ class JobsCog(commands.Cog):
         to_post = [job for job in matched_jobs if job.id in unposted_ids]
 
         if priority_province:
-            province_name = next((name for name, code in PROVINCES if code == priority_province), priority_province)
             in_province_ids = {job.id for job in to_post if detect_province(job.location) == priority_province}
             sections = [
-                (f"📍 Jobs in {province_name}", [job for job in to_post if job.id in in_province_ids]),
+                (f"📍 Jobs in {province_name(priority_province)}", [job for job in to_post if job.id in in_province_ids]),
                 ("🍁 Rest of Canada", [job for job in to_post if job.id not in in_province_ids]),
             ]
         else:
