@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from discord.ext import commands
 
-from config import DISCORD_CHANNEL_ID
+from db import get_unposted_job_ids, list_channel_ids, mark_posted, register_channel, unregister_channel
 from pipeline import run_pipeline
 from scrapers.base import Job
 
@@ -102,29 +102,68 @@ class JobsCog(commands.Cog):
     async def cog_unload(self):
         self.scheduler.shutdown(wait=False)
 
-    async def post_new_jobs(self, channel: discord.abc.Messageable) -> list[Job]:
-        new_jobs = await asyncio.to_thread(run_pipeline)
-        embeds = build_job_embeds(new_jobs)
+    async def _post_to_channel(self, channel: discord.abc.Messageable, matched_jobs: list[Job]) -> list[Job]:
+        """Post whichever of the given jobs this specific channel hasn't
+        seen yet, then record them as posted for this channel."""
+        unposted_ids = get_unposted_job_ids(channel.id, [job.id for job in matched_jobs])
+        to_post = [job for job in matched_jobs if job.id in unposted_ids]
+
+        embeds = build_job_embeds(to_post)
         for batch in batch_embeds_by_message(embeds):
             await channel.send(embeds=batch)
-        return new_jobs
+
+        for job in to_post:
+            mark_posted(channel.id, job.id)
+
+        return to_post
 
     async def scheduled_scrape(self):
-        channel = self.bot.get_channel(DISCORD_CHANNEL_ID)
-        if channel is None:
-            logger.warning("Scheduled scrape skipped: channel %s not found", DISCORD_CHANNEL_ID)
-            return
-        new_jobs = await self.post_new_jobs(channel)
-        logger.info("Scheduled scrape posted %d new job(s)", len(new_jobs))
+        matched_jobs = await asyncio.to_thread(run_pipeline)
+        for channel_id in list_channel_ids():
+            channel = self.bot.get_channel(channel_id)
+            if channel is None:
+                logger.warning("Registered channel %s not found/accessible, skipping", channel_id)
+                continue
+            posted = await self._post_to_channel(channel, matched_jobs)
+            logger.info("Posted %d new job(s) to channel %s", len(posted), channel_id)
 
     @commands.command(name="jobs")
     async def jobs(self, ctx: commands.Context):
         await ctx.send("Scraping for new postings...")
-        channel = self.bot.get_channel(DISCORD_CHANNEL_ID) or ctx.channel
-        new_jobs = await self.post_new_jobs(channel)
+        matched_jobs = await asyncio.to_thread(run_pipeline)
+        posted = await self._post_to_channel(ctx.channel, matched_jobs)
 
-        if not new_jobs:
+        if not posted:
             await ctx.send("No new Canadian co-op/internship postings found.")
+
+    @commands.command(name="setup")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def setup_channel(self, ctx: commands.Context):
+        newly_registered = register_channel(ctx.channel.id, ctx.guild.id, ctx.guild.name)
+        if newly_registered:
+            await ctx.send(
+                "This channel is now registered for Frogg postings "
+                "(automatically at 12am/6am/12pm/6pm ET). Run `!jobs` anytime to check manually."
+            )
+        else:
+            await ctx.send("This channel is already registered.")
+
+    @commands.command(name="stop")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def stop_channel(self, ctx: commands.Context):
+        removed = unregister_channel(ctx.channel.id)
+        if removed:
+            await ctx.send("This channel is unregistered. No more automatic postings here.")
+        else:
+            await ctx.send("This channel wasn't registered.")
+
+    @setup_channel.error
+    @stop_channel.error
+    async def channel_command_error(self, ctx: commands.Context, error: commands.CommandError):
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("You need the \"Manage Server\" permission to run this.")
+        else:
+            raise error
 
 
 async def setup(bot: commands.Bot):
