@@ -29,7 +29,11 @@ python bot.py
 
 Then, in any server the bot's been invited to, someone with "Manage
 Server" permission runs `!setup` in the channel that should receive
-postings. Run `!stop` in a channel to unregister it.
+postings and picks a priority province from the dropdown (or "All of
+Canada" for a single combined list). Picking a province splits every
+post into two sections: postings in that province, then the rest of
+Canada. Run `!setup` again to change the choice, or `!stop` to
+unregister the channel entirely.
 
 ## Deploying to Railway
 
