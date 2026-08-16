@@ -18,6 +18,7 @@ async def on_ready():
 
 
 async def main():
+    discord.utils.setup_logging()
     init_db()
     async with bot:
         await bot.load_extension("cogs.jobs")
