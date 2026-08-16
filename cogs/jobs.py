@@ -3,14 +3,19 @@ import logging
 
 import discord
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
+from apscheduler.triggers.cron import CronTrigger
 from discord.ext import commands
 
 from config import DISCORD_CHANNEL_ID
 from pipeline import run_pipeline
 from scrapers.base import Job
 
-SCRAPE_INTERVAL_HOURS = 6
+# Fixed posting times rather than "every 6 hours from process start" - the
+# latter drifts on every restart/redeploy, so students would never know
+# when to expect a post. Timezone is set explicitly since the container's
+# system clock (Railway defaults to UTC) won't match Windsor, ON.
+SCRAPE_HOURS = "0,6,12,18"
+SCRAPE_TIMEZONE = "America/Toronto"
 
 # Discord hard limits: 25 fields per embed, 10 embeds per message, and (the
 # one that actually bites here) 6000 total characters summed across every
@@ -89,7 +94,7 @@ class JobsCog(commands.Cog):
     async def cog_load(self):
         self.scheduler.add_job(
             self.scheduled_scrape,
-            trigger=IntervalTrigger(hours=SCRAPE_INTERVAL_HOURS),
+            trigger=CronTrigger(hour=SCRAPE_HOURS, minute=0, timezone=SCRAPE_TIMEZONE),
             id="scrape_jobs",
         )
         self.scheduler.start()
