@@ -218,6 +218,20 @@ class JobsCog(commands.Cog):
         if not posted:
             await ctx.send("No new Canadian co-op/internship postings found.")
 
+    @commands.command(name="status")
+    async def status(self, ctx: commands.Context):
+        if not is_channel_registered(ctx.channel.id):
+            await ctx.send("This channel isn't registered. Run `!setup` to register it.")
+            return
+
+        priority_province = get_priority_province(ctx.channel.id)
+        label = province_name(priority_province) if priority_province else "All of Canada (no preference)"
+        await ctx.send(
+            "This channel is registered for Frogg postings "
+            "(automatically at 12am/6am/12pm/6pm ET).\n"
+            f"Priority location: **{label}**."
+        )
+
     @commands.command(name="setup")
     @commands.has_guild_permissions(manage_guild=True)
     async def setup_channel(self, ctx: commands.Context):
