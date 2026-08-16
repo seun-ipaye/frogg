@@ -12,16 +12,35 @@ from scrapers.base import Job
 
 SCRAPE_INTERVAL_HOURS = 6
 
+# Discord hard limits: 25 fields per embed, 10 embeds per message. Keeping
+# well under the field limit so postings stay readable rather than cramped.
+JOBS_PER_EMBED = 10
+EMBEDS_PER_MESSAGE = 10
+
 logger = logging.getLogger(__name__)
 
 
-def job_to_embed(job: Job) -> discord.Embed:
-    embed = discord.Embed(title=job.title, url=job.url, color=discord.Color.blurple())
-    embed.add_field(name="Company", value=job.company, inline=True)
-    embed.add_field(name="Location", value=job.location or "Not specified", inline=True)
-    embed.add_field(name="Type", value=job.job_type or "Internship/Co-op", inline=True)
-    embed.set_footer(text=f"Source: {job.source}")
-    return embed
+def build_job_embeds(jobs: list[Job]) -> list[discord.Embed]:
+    """Pack jobs into embeds (JOBS_PER_EMBED fields each) so a large batch
+    posts as a handful of messages instead of one message per job."""
+    embeds = []
+    for i in range(0, len(jobs), JOBS_PER_EMBED):
+        chunk = jobs[i : i + JOBS_PER_EMBED]
+        embed = discord.Embed(color=discord.Color.blurple())
+        for job in chunk:
+            embed.add_field(
+                name=f"{job.title} — {job.company}"[:256],
+                value=f"📍 {job.location or 'Not specified'} • [Apply]({job.url})",
+                inline=False,
+            )
+        embeds.append(embed)
+
+    if embeds:
+        embeds[0].title = f"New Canadian Co-op/Internship Postings ({len(jobs)})"
+        embeds[-1].set_footer(text="Frogg 🐸")
+        embeds[-1].timestamp = discord.utils.utcnow()
+
+    return embeds
 
 
 class JobsCog(commands.Cog):
@@ -42,8 +61,9 @@ class JobsCog(commands.Cog):
 
     async def post_new_jobs(self, channel: discord.abc.Messageable) -> list[Job]:
         new_jobs = await asyncio.to_thread(run_pipeline)
-        for job in new_jobs:
-            await channel.send(embed=job_to_embed(job))
+        embeds = build_job_embeds(new_jobs)
+        for i in range(0, len(embeds), EMBEDS_PER_MESSAGE):
+            await channel.send(embeds=embeds[i : i + EMBEDS_PER_MESSAGE])
         return new_jobs
 
     async def scheduled_scrape(self):
