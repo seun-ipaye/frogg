@@ -192,8 +192,14 @@ class JobsCog(commands.Cog):
             if channel is None:
                 logger.warning("Registered channel %s not found/accessible, skipping", channel_id)
                 continue
-            posted = await self._post_to_channel(channel, matched_jobs, priority_province)
-            logger.info("Posted %d new job(s) to channel %s", len(posted), channel_id)
+            try:
+                posted = await self._post_to_channel(channel, matched_jobs, priority_province)
+                logger.info("Posted %d new job(s) to channel %s", len(posted), channel_id)
+            except Exception:
+                # One channel failing (permissions revoked, a transient
+                # Discord API error, etc.) shouldn't stop every other
+                # registered channel from getting posted to.
+                logger.exception("Failed to post to channel %s, skipping", channel_id)
 
     @commands.command(name="jobs")
     async def jobs(self, ctx: commands.Context):
