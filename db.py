@@ -112,6 +112,12 @@ def list_channel_ids() -> list[int]:
         return [row[0] for row in rows]
 
 
+def is_channel_registered(channel_id: int) -> bool:
+    with _connect() as conn:
+        row = conn.execute("SELECT 1 FROM channels WHERE channel_id = ?", (channel_id,)).fetchone()
+        return row is not None
+
+
 def get_unposted_job_ids(channel_id: int, job_ids: list[int]) -> set[int]:
     """Of the given job ids, return the ones not yet posted to this channel."""
     if not job_ids:

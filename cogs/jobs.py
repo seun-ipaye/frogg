@@ -6,7 +6,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from discord.ext import commands
 
-from db import get_unposted_job_ids, list_channel_ids, mark_posted, register_channel, unregister_channel
+from db import (
+    get_unposted_job_ids,
+    is_channel_registered,
+    list_channel_ids,
+    mark_posted,
+    register_channel,
+    unregister_channel,
+)
 from pipeline import run_pipeline
 from scrapers.base import Job
 
@@ -129,6 +136,13 @@ class JobsCog(commands.Cog):
 
     @commands.command(name="jobs")
     async def jobs(self, ctx: commands.Context):
+        if not is_channel_registered(ctx.channel.id):
+            await ctx.send(
+                'This channel isn\'t set up yet. Ask someone with "Manage Server" '
+                "permission to run `!setup` here first."
+            )
+            return
+
         await ctx.send("Scraping for new postings...")
         matched_jobs = await asyncio.to_thread(run_pipeline)
         posted = await self._post_to_channel(ctx.channel, matched_jobs)
