@@ -1,4 +1,4 @@
-from db import insert_job
+from db import upsert_job
 from scrapers.base import Job
 from scrapers.companies import scrape_all_companies
 
@@ -30,13 +30,14 @@ def is_canadian(job: Job) -> bool:
 
 def run_pipeline() -> list[Job]:
     """Scrape all sources, filter to Canadian co-op/internship roles, and
-    return only the jobs that are new (not already in the database)."""
+    upsert each match into the job catalog. Returns every match (not just
+    ones new to the catalog) - which of these are new is a per-channel
+    question the caller answers via db.get_unposted_job_ids()."""
     scraped = scrape_all_companies()
     matched = [job for job in scraped if is_internship(job) and is_canadian(job)]
 
-    new_jobs = []
     for job in matched:
-        if insert_job(
+        job.id = upsert_job(
             company=job.company,
             title=job.title,
             url=job.url,
@@ -44,6 +45,5 @@ def run_pipeline() -> list[Job]:
             job_type=job.job_type,
             source=job.source,
             posted_at=job.posted_at,
-        ):
-            new_jobs.append(job)
-    return new_jobs
+        )
+    return matched
