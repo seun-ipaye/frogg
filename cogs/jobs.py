@@ -120,6 +120,11 @@ class ProvinceSelect(discord.ui.Select):
             ),
             view=None,
         )
+        # Without this, the view's timeout task is still armed - it fires
+        # on_timeout() ~120s later and edits this same message again,
+        # clobbering the confirmation above with a stale "timed out" text
+        # even though registration already succeeded.
+        self.view.stop()
 
 
 class ProvinceSelectView(discord.ui.View):
