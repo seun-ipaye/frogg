@@ -201,6 +201,39 @@ class JobsCog(commands.Cog):
                 # registered channel from getting posted to.
                 logger.exception("Failed to post to channel %s, skipping", channel_id)
 
+    @commands.command(name="help")
+    async def help_command(self, ctx: commands.Context):
+        embed = discord.Embed(
+            title="Frogg 🐸",
+            description="Canadian tech co-op/internship postings, delivered to Discord.",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(
+            name="!jobs",
+            value="Check for new postings right now in this channel. Requires the channel to be set up first.",
+            inline=False,
+        )
+        embed.add_field(
+            name="!status",
+            value="Check whether this channel is registered and its priority province.",
+            inline=False,
+        )
+        embed.add_field(
+            name="!setup",
+            value=(
+                "Register this channel for automatic postings (12am/6am/12pm/6pm ET) and pick "
+                'a priority province. Requires "Manage Server" permission.'
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="!stop",
+            value='Unregister this channel. Requires "Manage Server" permission.',
+            inline=False,
+        )
+        embed.set_footer(text="Once a channel is set up, postings run automatically 4x/day.")
+        await ctx.send(embed=embed)
+
     @commands.command(name="jobs")
     async def jobs(self, ctx: commands.Context):
         if not is_channel_registered(ctx.channel.id):
