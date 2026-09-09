@@ -293,6 +293,28 @@ class JobsCog(commands.Cog):
         else:
             raise error
 
+    @commands.command(name="guilds")
+    @commands.is_owner()
+    async def guilds(self, ctx: commands.Context):
+        guilds = sorted(self.bot.guilds, key=lambda g: g.member_count or 0, reverse=True)
+        total_members = sum(g.member_count or 0 for g in guilds)
+
+        embed = discord.Embed(
+            title=f"Frogg is in {len(guilds)} server(s)",
+            description=f"Total members across all servers: {total_members}",
+            color=discord.Color.blurple(),
+        )
+        for guild in guilds:
+            embed.add_field(name=guild.name, value=f"{guild.member_count} members", inline=False)
+
+        await ctx.send(embed=embed)
+
+    @guilds.error
+    async def guilds_error(self, ctx: commands.Context, error: commands.CommandError):
+        if isinstance(error, commands.NotOwner):
+            return  # silently ignore - don't advertise an owner-only command to others
+        raise error
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(JobsCog(bot))
