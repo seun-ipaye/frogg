@@ -307,7 +307,13 @@ class JobsCog(commands.Cog):
         for guild in guilds:
             embed.add_field(name=guild.name, value=f"{guild.member_count} members", inline=False)
 
-        await ctx.send(embed=embed)
+        try:
+            await ctx.author.send(embed=embed)
+        except discord.Forbidden:
+            await ctx.send("Couldn't DM you — check that DMs from server members are allowed and try again.")
+        else:
+            if ctx.guild is not None:
+                await ctx.send("Sent you a DM 🐸")
 
     @guilds.error
     async def guilds_error(self, ctx: commands.Context, error: commands.CommandError):
