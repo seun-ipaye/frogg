@@ -96,6 +96,28 @@ def batch_embeds_by_message(embeds: list[discord.Embed]) -> list[list[discord.Em
     return batches
 
 
+GUILDS_PER_EMBED = 20  # Discord hard caps at 25 fields per embed; leave a margin
+
+
+def build_guild_embeds(guilds: list[discord.Guild]) -> list[discord.Embed]:
+    """Pack guilds into embeds (GUILDS_PER_EMBED fields each) - a single
+    embed silently breaks once the bot passes 25 servers."""
+    embeds = []
+    for i in range(0, len(guilds), GUILDS_PER_EMBED):
+        chunk = guilds[i : i + GUILDS_PER_EMBED]
+        embed = discord.Embed(color=discord.Color.blurple())
+        for guild in chunk:
+            embed.add_field(name=guild.name, value=f"{guild.member_count} members", inline=False)
+        embeds.append(embed)
+
+    if embeds:
+        total_members = sum(g.member_count or 0 for g in guilds)
+        embeds[0].title = f"Frogg is in {len(guilds)} server(s)"
+        embeds[0].description = f"Total members across all servers: {total_members}"
+
+    return embeds
+
+
 NO_PREFERENCE = "ALL"  # dropdown option value for "All of Canada" - SelectOption.value can't be empty
 
 
@@ -297,29 +319,28 @@ class JobsCog(commands.Cog):
     @commands.is_owner()
     async def guilds(self, ctx: commands.Context):
         guilds = sorted(self.bot.guilds, key=lambda g: g.member_count or 0, reverse=True)
-        total_members = sum(g.member_count or 0 for g in guilds)
-
-        embed = discord.Embed(
-            title=f"Frogg is in {len(guilds)} server(s)",
-            description=f"Total members across all servers: {total_members}",
-            color=discord.Color.blurple(),
-        )
-        for guild in guilds:
-            embed.add_field(name=guild.name, value=f"{guild.member_count} members", inline=False)
+        embeds = build_guild_embeds(guilds)
 
         try:
-            await ctx.author.send(embed=embed)
+            for batch in batch_embeds_by_message(embeds):
+                await ctx.author.send(embeds=batch)
         except discord.Forbidden:
             await ctx.send("Couldn't DM you — check that DMs from server members are allowed and try again.")
-        else:
-            if ctx.guild is not None:
-                await ctx.send("Sent you a DM 🐸")
+            return
+
+        if ctx.guild is not None:
+            await ctx.send("Sent you a DM 🐸")
 
     @guilds.error
     async def guilds_error(self, ctx: commands.Context, error: commands.CommandError):
-        if isinstance(error, commands.NotOwner):
+        original = getattr(error, "original", error)
+        if isinstance(original, commands.NotOwner):
             return  # silently ignore - don't advertise an owner-only command to others
-        raise error
+        # Anything else failing here shouldn't just vanish into the logs
+        # the way this exact command's Discord API error did - that's
+        # what made today's bug invisible until we went digging.
+        logger.error("guilds command failed", exc_info=original)
+        await ctx.send(f"`!guilds` failed: {original}")
 
 
 async def setup(bot: commands.Bot):
