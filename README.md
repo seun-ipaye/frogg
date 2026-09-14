@@ -1,3 +1,7 @@
+<a href="https://top.gg/bot/1538298422807765002">
+  <img src="https://top.gg/api/widget/1538298422807765002.svg">
+</a>
+
 # Frogg
 
 A Discord bot that scrapes Canadian tech co-op and internship postings from
