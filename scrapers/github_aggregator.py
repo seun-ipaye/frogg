@@ -4,13 +4,20 @@ import requests
 
 from scrapers.base import Job
 
-# Community-maintained tracker of active internship/co-op postings across
-# hundreds of companies, updated continuously by bots + PRs. MIT-licensed
-# and published specifically for third-party consumption like this.
-LISTINGS_URL = (
+# Community-maintained trackers of active postings across hundreds of
+# companies, updated continuously by bots + PRs. MIT-licensed and published
+# specifically for third-party consumption like this.
+COOP_LISTINGS_URL = (
     "https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships"
     "/dev/.github/scripts/listings.json"
 )
+NEW_GRAD_LISTINGS_URL = (
+    "https://raw.githubusercontent.com/SimplifyJobs/New-Grad-Positions"
+    "/dev/.github/scripts/listings.json"
+)
+
+COOP_SOURCE = "github_aggregator"
+NEW_GRAD_SOURCE = "github_aggregator_newgrad"
 
 
 def _format_posted_at(epoch_seconds) -> str | None:
@@ -19,8 +26,8 @@ def _format_posted_at(epoch_seconds) -> str | None:
     return time.strftime("%Y-%m-%d", time.gmtime(epoch_seconds))
 
 
-def scrape_github_aggregator() -> list[Job]:
-    response = requests.get(LISTINGS_URL, timeout=15)
+def scrape_github_aggregator(listings_url: str, source: str) -> list[Job]:
+    response = requests.get(listings_url, timeout=15)
     response.raise_for_status()
 
     jobs = []
@@ -33,7 +40,7 @@ def scrape_github_aggregator() -> list[Job]:
                 title=posting["title"],
                 url=posting["url"],
                 location="; ".join(posting.get("locations") or []) or None,
-                source="github_aggregator",
+                source=source,
                 posted_at=_format_posted_at(posting.get("date_posted")),
             )
         )

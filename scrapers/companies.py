@@ -1,7 +1,13 @@
 import logging
 
 from scrapers.base import Job
-from scrapers.github_aggregator import scrape_github_aggregator
+from scrapers.github_aggregator import (
+    COOP_LISTINGS_URL,
+    COOP_SOURCE,
+    NEW_GRAD_LISTINGS_URL,
+    NEW_GRAD_SOURCE,
+    scrape_github_aggregator,
+)
 from scrapers.greenhouse import scrape_greenhouse
 from scrapers.lever import scrape_lever
 from scrapers.workday import scrape_workday
@@ -39,10 +45,16 @@ def _safe_scrape(source_label: str, scrape_fn, *args) -> list[Job]:
 
 
 def scrape_all_companies() -> list[Job]:
-    # Primary source: a community-maintained aggregator already covering
-    # hundreds of companies. Our hand-registered scrapers below supplement
-    # it for Canadian companies/postings it might miss.
-    jobs = _safe_scrape("github_aggregator", scrape_github_aggregator)
+    # Primary sources: community-maintained aggregators already covering
+    # hundreds of companies (one for co-ops/internships, one for new grad
+    # roles). Our hand-registered scrapers below supplement them for
+    # Canadian companies/postings they might miss.
+    jobs = _safe_scrape("github_aggregator_coop", scrape_github_aggregator, COOP_LISTINGS_URL, COOP_SOURCE)
+    jobs.extend(
+        _safe_scrape(
+            "github_aggregator_newgrad", scrape_github_aggregator, NEW_GRAD_LISTINGS_URL, NEW_GRAD_SOURCE
+        )
+    )
     for company_name, board_token in GREENHOUSE_COMPANIES.items():
         jobs.extend(_safe_scrape(f"greenhouse:{company_name}", scrape_greenhouse, company_name, board_token))
     for company_name, company_token in LEVER_COMPANIES.items():
