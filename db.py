@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS channels (
     guild_id INTEGER NOT NULL,
     guild_name TEXT,
     priority_province TEXT,
+    include_new_grad INTEGER NOT NULL DEFAULT 0,
     registered_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -57,6 +58,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in conn.execute("PRAGMA table_info(channels)").fetchall()}
     if "priority_province" not in columns:
         conn.execute("ALTER TABLE channels ADD COLUMN priority_province TEXT")
+    if "include_new_grad" not in columns:
+        conn.execute("ALTER TABLE channels ADD COLUMN include_new_grad INTEGER NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:
@@ -121,6 +124,30 @@ def register_channel(
         return not existed
 
 
+def set_new_grad_preference(
+    channel_id: int, guild_id: int, guild_name: str | None, include_new_grad: bool
+) -> bool:
+    """Register a channel (if not already registered) or update its new
+    grad preference, independently of priority_province - each !setup
+    dropdown persists its own setting without clobbering the other."""
+    with _connect() as conn:
+        existed = conn.execute(
+            "SELECT 1 FROM channels WHERE channel_id = ?", (channel_id,)
+        ).fetchone() is not None
+        conn.execute(
+            """
+            INSERT INTO channels (channel_id, guild_id, guild_name, include_new_grad)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(channel_id) DO UPDATE SET
+                guild_name = excluded.guild_name,
+                include_new_grad = excluded.include_new_grad
+            """,
+            (channel_id, guild_id, guild_name, int(include_new_grad)),
+        )
+        conn.commit()
+        return not existed
+
+
 def unregister_channel(channel_id: int) -> bool:
     """Returns True if a registered channel was removed, False if it
     wasn't registered."""
@@ -130,11 +157,14 @@ def unregister_channel(channel_id: int) -> bool:
         return cursor.rowcount > 0
 
 
-def list_channels() -> list[tuple[int, str | None]]:
-    """Returns (channel_id, priority_province) for every registered channel."""
+def list_channels() -> list[tuple[int, str | None, bool]]:
+    """Returns (channel_id, priority_province, include_new_grad) for every
+    registered channel."""
     with _connect() as conn:
-        rows = conn.execute("SELECT channel_id, priority_province FROM channels").fetchall()
-        return [(row[0], row[1]) for row in rows]
+        rows = conn.execute(
+            "SELECT channel_id, priority_province, include_new_grad FROM channels"
+        ).fetchall()
+        return [(row[0], row[1], bool(row[2])) for row in rows]
 
 
 def is_channel_registered(channel_id: int) -> bool:
@@ -149,6 +179,14 @@ def get_priority_province(channel_id: int) -> str | None:
             "SELECT priority_province FROM channels WHERE channel_id = ?", (channel_id,)
         ).fetchone()
         return row[0] if row else None
+
+
+def get_include_new_grad(channel_id: int) -> bool:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT include_new_grad FROM channels WHERE channel_id = ?", (channel_id,)
+        ).fetchone()
+        return bool(row[0]) if row else False
 
 
 def get_unposted_job_ids(channel_id: int, job_ids: list[int]) -> set[int]:
