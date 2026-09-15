@@ -136,17 +136,29 @@ def _setup_status_text(priority_province: str | None, include_new_grad: bool) ->
     )
 
 
+def _mark_default(options: list[discord.SelectOption], selected_value: str) -> None:
+    """Discord's Select widget shows only the placeholder text in its
+    collapsed state unless one option is explicitly flagged as the
+    current selection - without this, a choice looks unconfirmed even
+    though it was saved correctly."""
+    for option in options:
+        option.default = option.value == selected_value
+
+
 class ProvinceSelect(discord.ui.Select):
-    def __init__(self, guild_id: int, guild_name: str | None):
+    def __init__(self, guild_id: int, guild_name: str | None, current_province: str | None):
         self.guild_id = guild_id
         self.guild_name = guild_name
         options = [discord.SelectOption(label="All of Canada (no preference)", value=NO_PREFERENCE)] + [
             discord.SelectOption(label=f"{name} ({code})", value=code) for name, code in PROVINCES
         ]
+        _mark_default(options, current_province or NO_PREFERENCE)
         super().__init__(placeholder="Choose a priority province...", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction):
-        province = None if self.values[0] == NO_PREFERENCE else self.values[0]
+        selected_value = self.values[0]
+        _mark_default(self.options, selected_value)
+        province = None if selected_value == NO_PREFERENCE else selected_value
         register_channel(interaction.channel_id, self.guild_id, self.guild_name, priority_province=province)
         include_new_grad = get_include_new_grad(interaction.channel_id)
         await interaction.response.edit_message(
@@ -155,17 +167,20 @@ class ProvinceSelect(discord.ui.Select):
 
 
 class NewGradSelect(discord.ui.Select):
-    def __init__(self, guild_id: int, guild_name: str | None):
+    def __init__(self, guild_id: int, guild_name: str | None, current_include_new_grad: bool):
         self.guild_id = guild_id
         self.guild_name = guild_name
         options = [
             discord.SelectOption(label="New grad roles: Off (co-ops/internships only)", value=NEW_GRAD_OFF),
             discord.SelectOption(label="New grad roles: On (include full-time new grad postings)", value=NEW_GRAD_ON),
         ]
+        _mark_default(options, NEW_GRAD_ON if current_include_new_grad else NEW_GRAD_OFF)
         super().__init__(placeholder="Include new grad roles?", options=options, min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction):
-        include_new_grad = self.values[0] == NEW_GRAD_ON
+        selected_value = self.values[0]
+        _mark_default(self.options, selected_value)
+        include_new_grad = selected_value == NEW_GRAD_ON
         set_new_grad_preference(interaction.channel_id, self.guild_id, self.guild_name, include_new_grad)
         priority_province = get_priority_province(interaction.channel_id)
         await interaction.response.edit_message(
@@ -174,11 +189,17 @@ class NewGradSelect(discord.ui.Select):
 
 
 class SetupView(discord.ui.View):
-    def __init__(self, guild_id: int, guild_name: str | None):
+    def __init__(
+        self,
+        guild_id: int,
+        guild_name: str | None,
+        current_province: str | None,
+        current_include_new_grad: bool,
+    ):
         super().__init__(timeout=120)
         self.message: discord.Message | None = None
-        self.add_item(ProvinceSelect(guild_id, guild_name))
-        self.add_item(NewGradSelect(guild_id, guild_name))
+        self.add_item(ProvinceSelect(guild_id, guild_name, current_province))
+        self.add_item(NewGradSelect(guild_id, guild_name, current_include_new_grad))
 
     async def on_timeout(self):
         # Disable the dropdowns rather than overwriting the message - with
@@ -349,7 +370,7 @@ class JobsCog(commands.Cog):
     async def setup_channel(self, ctx: commands.Context):
         priority_province = get_priority_province(ctx.channel.id)
         include_new_grad = get_include_new_grad(ctx.channel.id)
-        view = SetupView(ctx.guild.id, ctx.guild.name)
+        view = SetupView(ctx.guild.id, ctx.guild.name, priority_province, include_new_grad)
         view.message = await ctx.send(_setup_status_text(priority_province, include_new_grad), view=view)
 
     @commands.command(name="stop")
