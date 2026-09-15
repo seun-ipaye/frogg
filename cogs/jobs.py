@@ -131,24 +131,37 @@ def _setup_prompt_text(priority_province: str | None, include_new_grad: bool) ->
     location_label = province_name(priority_province) if priority_province else "All of Canada (no preference)"
     new_grad_label = "On" if include_new_grad else "Off"
     return (
-        "Pick a priority province, and whether to include new grad roles. "
-        "Postings run automatically at 12am/6am/12pm/6pm ET, or check manually with `!jobs`.\n\n"
+        "Pick a priority province, and whether to include new grad roles, "
+        "then press Confirm. Postings run automatically at 12am/6am/12pm/6pm "
+        "ET, or check manually with `!jobs`.\n\n"
         f"📍 Priority location: **{location_label}**\n"
         f"🎓 New grad roles: **{new_grad_label}**"
     )
 
 
 def _setup_confirmation_text(priority_province: str | None, include_new_grad: bool) -> str:
-    """Shown once the channel is actually registered - either right after
-    a dropdown fires, or immediately if !setup is re-run on a channel
-    that was already set up."""
+    """Shown once the channel is actually registered, while the dropdowns
+    are still visible - either right after a dropdown fires, or
+    immediately if !setup is re-run on a channel that was already set up."""
     location_label = province_name(priority_province) if priority_province else "All of Canada (no preference)"
     new_grad_label = "On" if include_new_grad else "Off"
     return (
         "This channel is registered for Frogg postings (automatically at "
         "12am/6am/12pm/6pm ET). Priority location: "
         f"**{location_label}**. New grad roles: **{new_grad_label}**. "
-        "Change either anytime using the dropdowns below, or run `!jobs` to check manually."
+        "Change either using the dropdowns below, then press Confirm when you're done."
+    )
+
+
+def _setup_final_text(priority_province: str | None, include_new_grad: bool) -> str:
+    """Shown after Confirm is pressed and the dropdowns are removed."""
+    location_label = province_name(priority_province) if priority_province else "All of Canada (no preference)"
+    new_grad_label = "On" if include_new_grad else "Off"
+    return (
+        "This channel is registered for Frogg postings (automatically at "
+        "12am/6am/12pm/6pm ET). Priority location: "
+        f"**{location_label}**. New grad roles: **{new_grad_label}**. "
+        "Run `!setup` again anytime to change either, or `!jobs` to check manually."
     )
 
 
@@ -204,6 +217,28 @@ class NewGradSelect(discord.ui.Select):
         )
 
 
+class ConfirmButton(discord.ui.Button):
+    def __init__(self, guild_id: int, guild_name: str | None):
+        super().__init__(label="Confirm", style=discord.ButtonStyle.success, emoji="✅")
+        self.guild_id = guild_id
+        self.guild_name = guild_name
+
+    async def callback(self, interaction: discord.Interaction):
+        # Always (re-)write both settings, even if neither dropdown was
+        # ever touched - otherwise pressing Confirm on an untouched setup
+        # message would look like it worked but leave the channel
+        # unregistered, since only the dropdowns themselves write to the DB.
+        priority_province = get_priority_province(interaction.channel_id)
+        include_new_grad = get_include_new_grad(interaction.channel_id)
+        register_channel(interaction.channel_id, self.guild_id, self.guild_name, priority_province=priority_province)
+        set_new_grad_preference(interaction.channel_id, self.guild_id, self.guild_name, include_new_grad)
+
+        await interaction.response.edit_message(
+            content=_setup_final_text(priority_province, include_new_grad), view=None
+        )
+        self.view.stop()
+
+
 class SetupView(discord.ui.View):
     def __init__(
         self,
@@ -216,6 +251,7 @@ class SetupView(discord.ui.View):
         self.message: discord.Message | None = None
         self.add_item(ProvinceSelect(guild_id, guild_name, current_province))
         self.add_item(NewGradSelect(guild_id, guild_name, current_include_new_grad))
+        self.add_item(ConfirmButton(guild_id, guild_name))
 
     async def on_timeout(self):
         # Disable the dropdowns rather than overwriting the message - with
