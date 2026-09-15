@@ -4,12 +4,12 @@
 
 # Frogg
 
-A Discord bot that scrapes Canadian tech co-op and internship postings from
-Greenhouse, Lever, and Workday career pages, plus a community internship
-tracker, dedupes them against a local SQLite database, and posts new ones
-as embeds — automatically at 12am/6am/12pm/6pm ET, or on demand with
-`!jobs`. Works across any number of servers: each one registers its own
-channel with `!setup`.
+A Discord bot that scrapes Canadian tech co-op, internship, and new grad
+postings from Greenhouse, Lever, and Workday career pages, plus two
+community trackers, dedupes them against a local SQLite database, and
+posts new ones as embeds — automatically at 12am/6am/12pm/6pm ET, or on
+demand with `!jobs`. Works across any number of servers: each one
+registers its own channel with `!setup`.
 
 ## Local setup
 
@@ -33,10 +33,12 @@ python bot.py
 
 Then, in any server the bot's been invited to, someone with "Manage
 Server" permission runs `!setup` in the channel that should receive
-postings and picks a priority province from the dropdown (or "All of
-Canada" for a single combined list). Picking a province splits every
-post into two sections: postings in that province, then the rest of
-Canada. Run `!setup` again to change the choice, or `!stop` to
+postings. Two independent dropdowns appear: a priority province (or
+"All of Canada" for a single combined list) and whether to include new
+grad roles alongside co-ops/internships. Picking a province splits
+posts into an in-province section and a rest-of-Canada section; with
+new grad roles on, those get their own matching sections too. Run
+`!setup` again anytime to change either choice, or `!stop` to
 unregister the channel entirely.
 
 ## Deploying to Railway
