@@ -3,6 +3,7 @@ from datetime import date, datetime
 from db import upsert_job
 from scrapers.base import Job
 from scrapers.companies import scrape_all_companies
+from scrapers.github_aggregator import NEW_GRAD_SOURCE
 
 INTERN_KEYWORDS = ("intern", "co-op", "coop")
 
@@ -31,6 +32,13 @@ def is_internship(job: Job) -> bool:
     return any(keyword in title for keyword in INTERN_KEYWORDS)
 
 
+def is_new_grad(job: Job) -> bool:
+    """New grad postings (e.g. "Investment Analyst", "Full Stack Software
+    Developer") don't reliably contain intern/co-op keywords - they're a
+    separate source, not a title pattern, and bypass is_internship entirely."""
+    return job.source == NEW_GRAD_SOURCE
+
+
 def is_canadian(job: Job) -> bool:
     location = (job.location or "").lower()
     return any(keyword in location for keyword in CANADA_KEYWORDS)
@@ -50,12 +58,18 @@ def is_recent(job: Job) -> bool:
 
 
 def run_pipeline() -> list[Job]:
-    """Scrape all sources, filter to recent Canadian co-op/internship
-    roles, and upsert each match into the job catalog. Returns every
-    match (not just ones new to the catalog) - which of these are new is
-    a per-channel question the caller answers via db.get_unposted_job_ids()."""
+    """Scrape all sources, filter to recent Canadian co-op/internship and
+    new grad roles, and upsert each match into the job catalog. Returns
+    every match (not just ones new to the catalog) - which of these are
+    new is a per-channel question the caller answers via
+    db.get_unposted_job_ids(), and whether new grad roles are shown at all
+    is a per-channel preference (db.get_include_new_grad())."""
     scraped = scrape_all_companies()
-    matched = [job for job in scraped if is_internship(job) and is_canadian(job) and is_recent(job)]
+    matched = [
+        job
+        for job in scraped
+        if (is_new_grad(job) or is_internship(job)) and is_canadian(job) and is_recent(job)
+    ]
 
     for job in matched:
         job.id = upsert_job(
