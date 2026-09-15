@@ -125,7 +125,9 @@ NEW_GRAD_ON = "on"
 NEW_GRAD_OFF = "off"
 
 
-def _setup_status_text(priority_province: str | None, include_new_grad: bool) -> str:
+def _setup_prompt_text(priority_province: str | None, include_new_grad: bool) -> str:
+    """Shown before this channel has ever been registered - no confirmation
+    wording here since nothing's actually been saved yet."""
     location_label = province_name(priority_province) if priority_province else "All of Canada (no preference)"
     new_grad_label = "On" if include_new_grad else "Off"
     return (
@@ -133,6 +135,20 @@ def _setup_status_text(priority_province: str | None, include_new_grad: bool) ->
         "Postings run automatically at 12am/6am/12pm/6pm ET, or check manually with `!jobs`.\n\n"
         f"📍 Priority location: **{location_label}**\n"
         f"🎓 New grad roles: **{new_grad_label}**"
+    )
+
+
+def _setup_confirmation_text(priority_province: str | None, include_new_grad: bool) -> str:
+    """Shown once the channel is actually registered - either right after
+    a dropdown fires, or immediately if !setup is re-run on a channel
+    that was already set up."""
+    location_label = province_name(priority_province) if priority_province else "All of Canada (no preference)"
+    new_grad_label = "On" if include_new_grad else "Off"
+    return (
+        "This channel is registered for Frogg postings (automatically at "
+        "12am/6am/12pm/6pm ET). Priority location: "
+        f"**{location_label}**. New grad roles: **{new_grad_label}**. "
+        "Change either anytime using the dropdowns below, or run `!jobs` to check manually."
     )
 
 
@@ -162,7 +178,7 @@ class ProvinceSelect(discord.ui.Select):
         register_channel(interaction.channel_id, self.guild_id, self.guild_name, priority_province=province)
         include_new_grad = get_include_new_grad(interaction.channel_id)
         await interaction.response.edit_message(
-            content=_setup_status_text(province, include_new_grad), view=self.view
+            content=_setup_confirmation_text(province, include_new_grad), view=self.view
         )
 
 
@@ -184,7 +200,7 @@ class NewGradSelect(discord.ui.Select):
         set_new_grad_preference(interaction.channel_id, self.guild_id, self.guild_name, include_new_grad)
         priority_province = get_priority_province(interaction.channel_id)
         await interaction.response.edit_message(
-            content=_setup_status_text(priority_province, include_new_grad), view=self.view
+            content=_setup_confirmation_text(priority_province, include_new_grad), view=self.view
         )
 
 
@@ -370,8 +386,9 @@ class JobsCog(commands.Cog):
     async def setup_channel(self, ctx: commands.Context):
         priority_province = get_priority_province(ctx.channel.id)
         include_new_grad = get_include_new_grad(ctx.channel.id)
+        text_fn = _setup_confirmation_text if is_channel_registered(ctx.channel.id) else _setup_prompt_text
         view = SetupView(ctx.guild.id, ctx.guild.name, priority_province, include_new_grad)
-        view.message = await ctx.send(_setup_status_text(priority_province, include_new_grad), view=view)
+        view.message = await ctx.send(text_fn(priority_province, include_new_grad), view=view)
 
     @commands.command(name="stop")
     @commands.has_guild_permissions(manage_guild=True)
