@@ -79,7 +79,8 @@ if the sync fails it's logged and retried, nothing else is affected.
    **Contents: Read and write**.
 3. **Set env vars** in your local `.env` and in Railway (never commit them):
    `GITHUB_TOKEN`, `GITHUB_REPO=owner/name`, and optionally `GITHUB_BRANCH` and
-   `BOT_INVITE_URL` (the "add to server" link shown in the generated README). Without these the sync
+   `BOT_INVITE_URL` (the "add to server" link shown in the generated README) and
+   `CREATOR_LINKEDIN_URL` (shown in its "built by" line). Without the GitHub ones the sync
    stays off.
 4. **Preview before going live** — set `LISTINGS_OUTPUT_DIR` to a local clone of
    the listings repo and run `python -m listings`. It writes the files there

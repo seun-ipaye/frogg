@@ -4,7 +4,14 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
-from config import COOP_TRACKER_REPO, BOT_INVITE_URL, LISTINGS_SYNC_INTERVAL_MINUTES
+from config import (
+    BOT_INVITE_URL,
+    COOP_TRACKER_REPO,
+    CREATOR_GITHUB_URL,
+    CREATOR_LINKEDIN_URL,
+    CREATOR_NAME,
+    LISTINGS_SYNC_INTERVAL_MINUTES,
+)
 from listings import render, store
 from listings.normalize import canonical_key
 from pipeline import is_canadian, is_internship, is_new_grad
@@ -122,6 +129,8 @@ def run_sync(publisher, *, now: datetime | None = None, scrape=scrape_all_source
     files = render.render_files(
         rows, today, tracker_repo=COOP_TRACKER_REPO,
         interval_minutes=LISTINGS_SYNC_INTERVAL_MINUTES, invite_url=BOT_INVITE_URL,
+        creator_name=CREATOR_NAME, creator_github_url=CREATOR_GITHUB_URL,
+        creator_linkedin_url=CREATOR_LINKEDIN_URL,
     )
     outcome = publisher.sync(files, lambda previous: commit_message(previous, files["listings.json"], today))
     summary.published, summary.message = outcome.changed, outcome.message

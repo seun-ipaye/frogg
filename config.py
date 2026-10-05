@@ -24,6 +24,10 @@ GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH") or "main"
 LISTINGS_OUTPUT_DIR = os.environ.get("LISTINGS_OUTPUT_DIR") or None  # write files here instead of pushing
 LISTINGS_SYNC_INTERVAL_MINUTES = _int_env("LISTINGS_SYNC_INTERVAL_MINUTES", 30)
 BOT_INVITE_URL = os.environ.get("BOT_INVITE_URL") or None
+# Credit line in the listings README. LinkedIn is shown only if set.
+CREATOR_NAME = os.environ.get("CREATOR_NAME") or "Seun Samuel-Ipaye"
+CREATOR_GITHUB_URL = os.environ.get("CREATOR_GITHUB_URL") or "https://github.com/seun-ipaye"
+CREATOR_LINKEDIN_URL = os.environ.get("CREATOR_LINKEDIN_URL") or "https://www.linkedin.com/in/seunipaye/"
 
 # SimplifyJobs renames this repo each year (Summer2026 -> Summer2027); GitHub
 # redirects the old name, but don't depend on that.

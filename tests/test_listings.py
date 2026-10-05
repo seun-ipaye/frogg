@@ -190,7 +190,7 @@ class RenderTests(unittest.TestCase):
                                      date(2026, 10, 5), **self.ARGS)["README.md"]
         self.assertIn("| Company | Role | Location | Apply | Date Posted | Term |", readme)
         self.assertEqual(readme.count("| --- | --- | --- | --- | --- | --- |"), 1)
-        self.assertEqual([l for l in readme.splitlines() if l.startswith("## ")], ["## About the data"])
+        self.assertEqual([l for l in readme.splitlines() if l.startswith("## ")], [])
         self.assertIn("| 2026-10-01 | Fall 2026 |", readme)
         self.assertIn("| 2026-10-01 | – |", readme)
 
@@ -219,6 +219,41 @@ class RenderTests(unittest.TestCase):
         files = render.render_files([row(location=loc)], date(2026, 10, 5), **self.ARGS)
         self.assertIn("+3 more", files["README.md"])
         self.assertEqual(json.loads(files["listings.json"])[0]["location"], loc)
+
+
+class ReadmeIntroTests(unittest.TestCase):
+    def render(self, rows, **extra):
+        return render.render_files(rows, date(2026, 10, 5), tracker_repo="Summer2027-Internships",
+                                   interval_minutes=30, invite_url=None, **extra)["README.md"]
+
+    def test_coverage_line_uses_years_from_open_listings(self):
+        rows = [row(term="Fall 2026"), row(role="b", term="Summer 2027"), row(role="c", term="Summer 2028"),
+                row(role="d", term="Fall 2019", status="closed", closed="2026-10-01")]
+        readme = self.render(rows)
+        self.assertIn("Winter, Summer and Fall 2026, 2027 and 2028:", readme)
+        self.assertIn("Toronto, Montreal, Vancouver, Ottawa", readme)
+        self.assertIn("remote roles open to applicants in Canada", readme)
+        self.assertIn("Winter, Summer and Fall 2027:", self.render([row(term="Summer 2027")]))
+
+    def test_how_it_works_and_source_attribution(self):
+        readme = self.render([row()])
+        for text in ("<summary><b>How this list works</b></summary>", "Sorted by newest posting", "work term",
+                     "🔒 means closed", "only if they're open to applicants in Canada",
+                     "https://github.com/SimplifyJobs/Summer2027-Internships", "isn't affiliated with SimplifyJobs"):
+            self.assertIn(text, readme)
+
+    def test_creator_line_optional_linkedin_and_no_pr_talk(self):
+        full = self.render([row()], creator_name="Jane Doe", creator_github_url="https://github.com/jane",
+                           creator_linkedin_url="https://linkedin.com/in/jane")
+        self.assertIn("Built and maintained by **Jane Doe** ([GitHub](https://github.com/jane) · "
+                      "[LinkedIn](https://linkedin.com/in/jane))", full)
+        self.assertIn("Star or 👀 watch", full)
+        partial = self.render([row()], creator_name="Jane Doe", creator_github_url="https://github.com/jane")
+        self.assertNotIn("LinkedIn", partial)
+        self.assertNotIn("Built and maintained", self.render([row()]))
+        for text in (full, partial):
+            self.assertNotIn("pull request", text.lower())
+            self.assertNotIn(" PR", text)
 
 
 class CommitMessageTests(unittest.TestCase):
