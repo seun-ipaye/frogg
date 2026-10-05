@@ -19,7 +19,7 @@ from listings.sync import build_universe, commit_message, run_sync
 from scrapers.base import Job
 from scrapers.companies import ScrapeReport
 from scrapers.github_aggregator import COOP_LABEL, COOP_SOURCE
-from scrapers.terms import earliest_term, parse_term, term_from_title, term_sort_key
+from scrapers.terms import earliest_term, normalize_term, parse_term, term_from_title, term_window
 
 TZ = ZoneInfo("America/Toronto")
 
@@ -63,7 +63,7 @@ class NormalizeTests(unittest.TestCase):
 
 class TermTests(unittest.TestCase):
     def test_parsing(self):
-        self.assertEqual(parse_term("Summer 2027"), (2027, 2))
+        self.assertEqual(parse_term("Summer 2027"), (2027, 1))
         self.assertEqual(term_from_title("2027 Fall Co-op, Backend"), "Fall 2027")
         self.assertEqual(term_from_title("Autumn 2026 Intern"), "Fall 2026")
         self.assertIsNone(term_from_title("Software Intern"))
@@ -72,10 +72,26 @@ class TermTests(unittest.TestCase):
         self.assertEqual(earliest_term(["Winter 2027", "Fall 2026", "N/A"]), "Fall 2026")
         self.assertIsNone(earliest_term(["N/A"]))
 
-    def test_sort_key_orders_newest_first_with_unspecified_last(self):
-        terms = ["Unspecified", "Fall 2026", "Summer 2027", "Winter 2027", "Summer 2026"]
-        ordered = sorted(terms, key=term_sort_key, reverse=True)
-        self.assertEqual(ordered, ["Summer 2027", "Winter 2027", "Fall 2026", "Summer 2026", "Unspecified"])
+    def test_only_winter_summer_fall_spring_folds_into_winter(self):
+        self.assertEqual(parse_term("Spring 2027"), (2027, 0))
+        self.assertEqual(term_from_title("Spring 2027 Co-op"), "Winter 2027")
+        self.assertEqual(earliest_term(["Spring 2027"]), "Winter 2027")
+        self.assertEqual(earliest_term(["Spring 2027", "Fall 2026"]), "Fall 2026")
+        self.assertEqual(normalize_term("Spring 2027"), "Winter 2027")
+        self.assertEqual(normalize_term("Unspecified"), "Unspecified")
+
+    def test_stored_spring_rows_are_published_as_winter(self):
+        files = render.render_files([row(term="Spring 2027")], date(2026, 10, 5),
+                                    tracker_repo="r", interval_minutes=30, invite_url=None)
+        self.assertEqual(json.loads(files["listings.json"])[0]["term"], "Winter 2027")
+        self.assertIn("| Winter 2027 |", files["README.md"])
+        self.assertNotIn("Spring", files["README.md"])
+
+    def test_term_window(self):
+        self.assertEqual(term_window("Fall 2026"), (date(2026, 9, 1), date(2027, 1, 1)))
+        self.assertEqual(term_window("Winter 2027"), (date(2027, 1, 1), date(2027, 5, 1)))
+        self.assertEqual(term_window("Summer 2027"), (date(2027, 5, 1), date(2027, 9, 1)))
+        self.assertIsNone(term_window("Unspecified"))
 
 
 class StoreTests(TempDBTestCase):
@@ -162,14 +178,30 @@ class RenderTests(unittest.TestCase):
         second = render.render_files(list(reversed(rows)), date(2026, 10, 5), **self.ARGS)
         self.assertEqual(first, second)
 
-    def test_newest_term_first_unspecified_last_and_open_before_closed(self):
-        rows = [row(role="role-old", term="Fall 2026"), row(role="role-none", term="Unspecified"),
-                row(role="role-closed", term="Summer 2027", status="closed", closed="2026-10-03"),
-                row(role="role-new", term="Summer 2027")]
+    def test_soonest_term_first_then_ended_terms_then_unspecified_then_closed(self):
+        # "Today" is Oct 5 2026: Fall 2026 is in progress, Summer 2026 is over.
+        rows = [row(role="role-over", term="Summer 2026"), row(role="role-none", term="Unspecified"),
+                row(role="role-closed", term="Fall 2026", status="closed", closed="2026-10-03"),
+                row(role="role-far", term="Summer 2028"), row(role="role-next", term="Winter 2027"),
+                row(role="role-now", term="Fall 2026")]
         readme = render.render_files(rows, date(2026, 10, 5), **self.ARGS)["README.md"]
-        order = [readme.index(name) for name in ("role-new", "role-closed", "role-old", "role-none")]
+        names = ("role-now", "role-next", "role-far", "role-over", "role-none", "role-closed")
+        order = [readme.index(name) for name in names]
         self.assertEqual(order, sorted(order))
-        self.assertIn("## Term not specified", readme)
+
+    def test_single_table_with_term_column_and_no_term_sections(self):
+        readme = render.render_files([row(term="Fall 2026"), row(role="B", term="Unspecified")],
+                                     date(2026, 10, 5), **self.ARGS)["README.md"]
+        self.assertIn("| Company | Role | Location | Apply | Date Posted | Term |", readme)
+        self.assertEqual(readme.count("| --- | --- | --- | --- | --- | --- |"), 1)
+        self.assertEqual([l for l in readme.splitlines() if l.startswith("## ")], ["## About the data"])
+        self.assertIn("| 2026-10-01 | Fall 2026 |", readme)
+        self.assertIn("| 2026-10-01 | – |", readme)
+
+    def test_newest_posting_first_within_a_term(self):
+        rows = [row(role="role-older", posted="2026-09-01"), row(role="role-newer", posted="2026-10-02")]
+        readme = render.render_files(rows, date(2026, 10, 5), **self.ARGS)["README.md"]
+        self.assertLess(readme.index("role-newer"), readme.index("role-older"))
 
     def test_closed_rows_marked_and_archived_after_30_days(self):
         rows = [row(role="recent", status="closed", closed="2026-09-20"),
