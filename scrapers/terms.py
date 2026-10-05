@@ -1,5 +1,4 @@
 import re
-from datetime import date
 from typing import Iterable
 
 UNSPECIFIED_TERM = "Unspecified"
@@ -46,19 +45,3 @@ def earliest_term(terms: Iterable[str]) -> str | None:
 def term_from_title(title: str | None) -> str | None:
     parsed = parse_term(title)
     return _format(*parsed) if parsed else None
-
-
-_SEASON_START_MONTH = {0: 1, 1: 5, 2: 9}  # Winter Jan, Summer May, Fall Sep
-TERM_LENGTH_MONTHS = 4
-
-
-def term_window(term: str | None) -> tuple[date, date] | None:
-    """(start, end) of a term, e.g. "Fall 2026" -> (2026-09-01, 2027-01-01).
-    Approximate - only used to rank terms by how soon they are."""
-    parsed = parse_term(term)
-    if not parsed:
-        return None
-    year, season = parsed
-    month = _SEASON_START_MONTH[season]
-    end_month = month + TERM_LENGTH_MONTHS
-    return date(year, month, 1), date(year + (end_month - 1) // 12, (end_month - 1) % 12 + 1, 1)

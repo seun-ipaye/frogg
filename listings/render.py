@@ -1,7 +1,7 @@
 import json
 from datetime import date
 
-from scrapers.terms import UNSPECIFIED_TERM, normalize_term, term_window
+from scrapers.terms import UNSPECIFIED_TERM, normalize_term
 
 # Closed listings stay visible (marked 🔒) this long, then move to archive.json.
 ARCHIVE_AFTER_DAYS = 30
@@ -22,25 +22,11 @@ def is_archived(row: dict, today: date) -> bool:
     return (today - date.fromisoformat(row["date_closed"])).days > ARCHIVE_AFTER_DAYS
 
 
-def _term_rank(row: dict, today: date) -> tuple[int, int]:
-    """Open listings: terms that are in progress or upcoming come first, soonest
-    first; then terms that already ended (most recent first); then unspecified.
-    Closed listings are ranked equal so they sort purely by closing date."""
-    if row["status"] == "closed":
-        return (0, 0)
-    window = term_window(row["term"])
-    if window is None:
-        return (2, 0)
-    start, end = window
-    return (0, start.toordinal()) if end > today else (1, -start.toordinal())
-
-
-def sort_rows(rows: list[dict], today: date) -> list[dict]:
-    """Soonest term at the top, newest posting first within a term, closed
-    listings (🔒) at the bottom by closing date. Deterministic for a given day."""
+def sort_rows(rows: list[dict]) -> list[dict]:
+    """Newest posting first; closed listings (🔒) at the bottom, most recently
+    closed first. Term is just a column. Fully deterministic."""
     ordered = sorted(rows, key=lambda r: (r["company"].lower(), r["role"].lower(), r["link"]))
     ordered.sort(key=lambda r: (r["date_closed"] if r["status"] == "closed" else r["date_posted"]) or "", reverse=True)
-    ordered.sort(key=lambda r: _term_rank(r, today))
     ordered.sort(key=lambda r: 0 if r["status"] == "open" else 1)
     return ordered
 
@@ -100,7 +86,7 @@ def build_readme(rows: list[dict], *, tracker_repo: str, interval_minutes: int, 
         f"**{open_count} open** · {closed_count} closed in the last {ARCHIVE_AFTER_DAYS} days · "
         "Data: [`listings.json`](listings.json) · [`archive.json`](archive.json)",
         "",
-        "Sorted by soonest term, then newest posting. 🔒 = closed.",
+        "Newest postings first. 🔒 = closed.",
         "",
         "| Company | Role | Location | Apply | Date Posted | Term |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -126,8 +112,8 @@ def render_files(
 ) -> dict[str, str]:
     """All published files, as {path: text}. Pure and deterministic: the same
     rows on the same day always render byte-identical output."""
-    archived = sort_rows([r for r in rows if is_archived(r, today)], today)
-    current = sort_rows([r for r in rows if not is_archived(r, today)], today)
+    archived = sort_rows([r for r in rows if is_archived(r, today)])
+    current = sort_rows([r for r in rows if not is_archived(r, today)])
     return {
         "listings.json": dump_json(current),
         "archive.json": dump_json(archived),
