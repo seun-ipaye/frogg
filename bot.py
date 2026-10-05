@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import discord
 from discord.ext import commands
@@ -34,6 +35,11 @@ async def main():
     init_db()
     async with bot:
         await bot.load_extension("cogs.jobs")
+        try:
+            await bot.load_extension("cogs.listings_sync")
+        except Exception:
+            # The repo sync is optional; whatever goes wrong with it must not stop the bot starting.
+            logging.getLogger(__name__).exception("Listings sync not loaded")
         await bot.start(DISCORD_TOKEN)
 
 

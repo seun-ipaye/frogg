@@ -33,7 +33,15 @@ def _format_posted_at(posted_on: str | None) -> str | None:
 
 
 def scrape_workday(company_name: str, tenant: str, wd_host: str, site: str) -> list[Job]:
+    return scrape_workday_status(company_name, tenant, wd_host, site)[0]
+
+
+def scrape_workday_status(company_name: str, tenant: str, wd_host: str, site: str) -> tuple[list[Job], bool]:
+    """Like scrape_workday, but also reports whether the whole board was
+    fetched. Boards larger than MAX_PAGES * PAGE_SIZE are truncated, so a
+    posting missing from the result does NOT mean it was taken down."""
     jobs = []
+    complete = False
     base_url = WORKDAY_JOB_BASE_URL.format(tenant=tenant, wd_host=wd_host, site=site)
 
     for page in range(MAX_PAGES):
@@ -47,6 +55,7 @@ def scrape_workday(company_name: str, tenant: str, wd_host: str, site: str) -> l
         data = response.json()
         postings = data.get("jobPostings", [])
         if not postings:
+            complete = True
             break
 
         for posting in postings:
@@ -62,6 +71,7 @@ def scrape_workday(company_name: str, tenant: str, wd_host: str, site: str) -> l
             )
 
         if offset + PAGE_SIZE >= data.get("total", 0):
+            complete = True
             break
 
-    return jobs
+    return jobs, complete

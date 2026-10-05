@@ -34,6 +34,25 @@ CREATE TABLE IF NOT EXISTS posted_jobs (
     posted_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (channel_id, job_id)
 );
+
+-- Working store for the public listings repo (see listings/). Deliberately
+-- separate from jobs/posted_jobs so it can't affect Discord posting, and it
+-- holds nothing about servers/channels since its contents get published.
+CREATE TABLE IF NOT EXISTS listings (
+    canonical_key TEXT PRIMARY KEY,
+    company TEXT NOT NULL,
+    role TEXT NOT NULL,
+    location TEXT,
+    term TEXT NOT NULL,
+    link TEXT NOT NULL,
+    date_posted TEXT,
+    date_found TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open',
+    closed_at TEXT,
+    last_seen_at TEXT NOT NULL,
+    missed_cycles INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL
+);
 """
 
 
@@ -44,7 +63,9 @@ def _dedup_hash(company: str, title: str, url: str) -> str:
 
 @contextmanager
 def _connect():
-    conn = sqlite3.connect(DATABASE_PATH)
+    # 30s instead of the 5s default: the listings sync and the Discord
+    # pipeline can now write at the same time.
+    conn = sqlite3.connect(DATABASE_PATH, timeout=30)
     try:
         yield conn
     finally:

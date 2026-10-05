@@ -62,3 +62,34 @@ Companies are registered in `scrapers/companies.py`, grouped by which ATS
 they use (Greenhouse board token, Lever company token, or Workday
 tenant/host/site). Add an entry to the relevant dict and it's picked up by
 both the manual command and the scheduled scrape automatically.
+
+## Publishing listings to a public GitHub repo
+
+Every 30 minutes (`LISTINGS_SYNC_INTERVAL_MINUTES`) Frogg updates a **separate**
+public repo with all currently open Canadian co-op/internship listings:
+`listings.json` (the source of truth a landing page can read), a generated
+`README.md` with tables grouped by term, and `archive.json` (listings closed for
+more than 30 days). Discord posting is independent and keeps its own schedule;
+if the sync fails it's logged and retried, nothing else is affected.
+
+1. **Create the repo** — public, and separate from this one (Railway redeploys
+   the bot on every push here). Tick "Add a README" so the branch exists.
+2. **Create a token** — GitHub → Settings → Developer settings → Personal access
+   tokens → Fine-grained tokens. Limit it to *only that repo* with
+   **Contents: Read and write**.
+3. **Set env vars** in your local `.env` and in Railway (never commit them):
+   `GITHUB_TOKEN`, `GITHUB_REPO=owner/name`, and optionally `GITHUB_BRANCH` and
+   `BOT_INVITE_URL` (the "add to server" link shown in the generated README). Without these the sync
+   stays off.
+4. **Preview before going live** — set `LISTINGS_OUTPUT_DIR` to a local clone of
+   the listings repo and run `python -m listings`. It writes the files there
+   without touching git or the network push path (it wins over `GITHUB_*`), so
+   you can review and commit by hand.
+5. **Add topic tags** in the repo's About panel (the token can't set these):
+   `canadian-tech-internships`, `canada-coop`, `internships-2027`, `swe-internships`.
+
+Listings close after 3 consecutive complete scrapes where they're missing from
+their source. If the database volume is ever lost, history (`date_found`, closed
+dates) is restored from the published `listings.json`. The data comes from the
+SimplifyJobs community trackers, which declare no license, so the generated
+README credits them. Run the tests with `python -m unittest discover -s tests -t .`.

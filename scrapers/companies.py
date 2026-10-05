@@ -1,7 +1,9 @@
 import logging
+from dataclasses import dataclass, field
 
 from scrapers.base import Job
 from scrapers.github_aggregator import (
+    COOP_LABEL,
     COOP_LISTINGS_URL,
     COOP_SOURCE,
     NEW_GRAD_LISTINGS_URL,
@@ -10,7 +12,7 @@ from scrapers.github_aggregator import (
 )
 from scrapers.greenhouse import scrape_greenhouse
 from scrapers.lever import scrape_lever
-from scrapers.workday import scrape_workday
+from scrapers.workday import scrape_workday_status
 
 logger = logging.getLogger(__name__)
 
@@ -34,33 +36,57 @@ WORKDAY_COMPANIES = {
 }
 
 
-def _safe_scrape(source_label: str, scrape_fn, *args) -> list[Job]:
-    """Run a scraper and swallow failures so one broken source (a changed
-    API shape, a timeout, a 404) doesn't take down the whole pipeline run."""
+@dataclass
+class ScrapeReport:
+    jobs: list[Job] = field(default_factory=list)
+    # Labels of sources whose FULL listing set was fetched this run. A failed
+    # fetch (or a truncated Workday board) is absent from this set, which is
+    # what stops "returned nothing" from being mistaken for "everything closed".
+    complete: set[str] = field(default_factory=set)
+
+
+def _try_scrape(label: str, scrape_fn, *args):
+    """Run a scraper; on failure log and return None so one broken source
+    (a changed API shape, a timeout, a 404) doesn't take down the whole run."""
     try:
         return scrape_fn(*args)
     except Exception:
-        logger.exception("Scrape failed for %s, skipping", source_label)
-        return []
+        logger.exception("Scrape failed for %s, skipping", label)
+        return None
 
 
-def scrape_all_companies() -> list[Job]:
+def scrape_all_sources(include_new_grad: bool = True) -> ScrapeReport:
+    report = ScrapeReport()
+
+    def add(label: str, jobs: list[Job] | None, complete: bool = True) -> None:
+        if jobs is None:
+            return
+        report.jobs.extend(jobs)
+        if complete:
+            report.complete.add(label)
+
     # Primary sources: community-maintained aggregators already covering
     # hundreds of companies (one for co-ops/internships, one for new grad
     # roles). Our hand-registered scrapers below supplement them for
     # Canadian companies/postings they might miss.
-    jobs = _safe_scrape("github_aggregator_coop", scrape_github_aggregator, COOP_LISTINGS_URL, COOP_SOURCE)
-    jobs.extend(
-        _safe_scrape(
-            "github_aggregator_newgrad", scrape_github_aggregator, NEW_GRAD_LISTINGS_URL, NEW_GRAD_SOURCE
-        )
-    )
+    add(COOP_LABEL, _try_scrape(COOP_LABEL, scrape_github_aggregator, COOP_LISTINGS_URL, COOP_SOURCE))
+    if include_new_grad:
+        label = "github_aggregator_newgrad"
+        add(label, _try_scrape(label, scrape_github_aggregator, NEW_GRAD_LISTINGS_URL, NEW_GRAD_SOURCE))
     for company_name, board_token in GREENHOUSE_COMPANIES.items():
-        jobs.extend(_safe_scrape(f"greenhouse:{company_name}", scrape_greenhouse, company_name, board_token))
+        label = f"greenhouse:{company_name}"
+        add(label, _try_scrape(label, scrape_greenhouse, company_name, board_token))
     for company_name, company_token in LEVER_COMPANIES.items():
-        jobs.extend(_safe_scrape(f"lever:{company_name}", scrape_lever, company_name, company_token))
+        label = f"lever:{company_name}"
+        add(label, _try_scrape(label, scrape_lever, company_name, company_token))
     for company_name, (tenant, wd_host, site) in WORKDAY_COMPANIES.items():
-        jobs.extend(
-            _safe_scrape(f"workday:{company_name}", scrape_workday, company_name, tenant, wd_host, site)
-        )
-    return jobs
+        label = f"workday:{company_name}"
+        result = _try_scrape(label, scrape_workday_status, company_name, tenant, wd_host, site)
+        if result is not None:
+            add(label, result[0], complete=result[1])
+    return report
+
+
+def scrape_all_companies() -> list[Job]:
+    """What the Discord pipeline uses - unchanged behavior."""
+    return scrape_all_sources().jobs
