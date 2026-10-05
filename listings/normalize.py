@@ -36,3 +36,15 @@ def canonical_key(company: str, role: str, link: str) -> str:
     """Stable identity of a listing across runs and sources."""
     raw = "|".join((normalize_text(company), normalize_text(role), normalize_link(link)))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+_SHOUTING_WORD = re.compile(r"\b[A-ZÀ-ÖØ-ÞŒ]{4,}\b")
+
+
+def tidy_location(location: str | None) -> str | None:
+    """"TORONTO, Ontario, Canada" -> "Toronto, Ontario, Canada". Only all-caps
+    words of 4+ letters are touched, so province codes and short acronyms
+    (ON, BC, NYC, SF, USA) stay as they are."""
+    if not location:
+        return location
+    return _SHOUTING_WORD.sub(lambda match: match.group(0).capitalize(), location)

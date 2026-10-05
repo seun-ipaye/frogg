@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import db
 from listings import render, store
-from listings.normalize import canonical_key, normalize_link
+from listings.normalize import canonical_key, normalize_link, tidy_location
 from listings.publishers import GitHubPublisher, LocalPublisher, PublishError, git_blob_sha
 from listings.sync import build_universe, commit_message, run_sync
 from scrapers.base import Job
@@ -59,6 +59,20 @@ class NormalizeTests(unittest.TestCase):
         b = canonical_key("acme inc", "swe intern - summer 2027", "http://X.com/a?id=1&utm_medium=x")
         self.assertEqual(a, b)
         self.assertNotEqual(a, canonical_key("Acme, Inc.", "SWE Intern (Summer 2027)", "https://x.com/a?id=2"))
+
+
+class LocationTests(unittest.TestCase):
+    def test_shouting_words_are_title_cased_but_codes_are_not(self):
+        self.assertEqual(tidy_location("TORONTO, Ontario, Canada"), "Toronto, Ontario, Canada")
+        self.assertEqual(tidy_location("MONTRÉAL, QC, CANADA; NYC; SF; Remote in USA"),
+                         "Montréal, QC, Canada; NYC; SF; Remote in USA")
+        self.assertEqual(tidy_location("SAINT-LAURENT, QC, Canada"), "Saint-Laurent, QC, Canada")
+        self.assertEqual(tidy_location("Toronto, ON, Canada"), "Toronto, ON, Canada")
+        self.assertIsNone(tidy_location(None))
+
+    def test_universe_applies_it(self):
+        listing = next(iter(build_universe([job(location="TORONTO, Ontario, Canada")]).values()))
+        self.assertEqual(listing.location, "Toronto, Ontario, Canada")
 
 
 class TermTests(unittest.TestCase):
@@ -230,10 +244,10 @@ class ReadmeIntroTests(unittest.TestCase):
         rows = [row(term="Fall 2026"), row(role="b", term="Summer 2027"), row(role="c", term="Summer 2028"),
                 row(role="d", term="Fall 2019", status="closed", closed="2026-10-01")]
         readme = self.render(rows)
-        self.assertIn("Winter, Summer and Fall 2026, 2027 and 2028:", readme)
+        self.assertIn("Winter, Summer and Fall 2026, 2027 and 2028.", readme)
         self.assertIn("Toronto, Montreal, Vancouver, Ottawa", readme)
         self.assertIn("remote roles open to applicants in Canada", readme)
-        self.assertIn("Winter, Summer and Fall 2027:", self.render([row(term="Summer 2027")]))
+        self.assertIn("Winter, Summer and Fall 2027.", self.render([row(term="Summer 2027")]))
 
     def test_how_it_works_and_source_attribution(self):
         readme = self.render([row()])
@@ -247,6 +261,9 @@ class ReadmeIntroTests(unittest.TestCase):
                            creator_linkedin_url="https://linkedin.com/in/jane")
         self.assertIn("Built and maintained by **Jane Doe** ([GitHub](https://github.com/jane) · "
                       "[LinkedIn](https://linkedin.com/in/jane))", full)
+        linkedin_only = self.render([row()], creator_name="Jane Doe", creator_linkedin_url="https://linkedin.com/in/jane")
+        self.assertIn("Built and maintained by **Jane Doe** ([LinkedIn](https://linkedin.com/in/jane))", linkedin_only)
+        self.assertNotIn("GitHub", linkedin_only)
         self.assertIn("Star or 👀 watch", full)
         partial = self.render([row()], creator_name="Jane Doe", creator_github_url="https://github.com/jane")
         self.assertNotIn("LinkedIn", partial)

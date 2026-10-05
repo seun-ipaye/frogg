@@ -102,9 +102,9 @@ def build_readme(
     lines = [
         "# 🐸 Canadian Tech Internships & Co-ops",
         "",
-        f"Open tech internships and co-ops in Canada for Winter, Summer and Fall{' ' + years if years else ''}: "
-        "software engineering (backend, frontend, full-stack), data science, AI/ML, DevOps, IT, product, "
-        "hardware engineering and more, in Toronto, Montreal, Vancouver, Ottawa, Waterloo, Calgary and other "
+        f"Open tech internships and co-ops in Canada for Winter, Summer and Fall{' ' + years if years else ''}. "
+        "Roles span software engineering (backend, frontend, full-stack), data science, AI/ML, DevOps, IT, "
+        "product and hardware engineering, in Toronto, Montreal, Vancouver, Ottawa, Waterloo, Calgary and other "
         "Canadian cities, plus remote roles open to applicants in Canada.",
         "",
         f"Updated automatically every {interval_minutes} minutes by **Frogg**, a Discord bot that delivers "

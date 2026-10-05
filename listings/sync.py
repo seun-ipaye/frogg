@@ -13,7 +13,7 @@ from config import (
     LISTINGS_SYNC_INTERVAL_MINUTES,
 )
 from listings import render, store
-from listings.normalize import canonical_key
+from listings.normalize import canonical_key, tidy_location
 from pipeline import is_canadian, is_internship, is_new_grad
 from scrapers.companies import scrape_all_sources
 from scrapers.terms import UNSPECIFIED_TERM, term_from_title
@@ -56,7 +56,7 @@ def build_universe(jobs) -> dict[str, store.Listing]:
             key=key,
             company=company,
             role=role,
-            location=job.location,
+            location=tidy_location(job.location),
             term=job.term or term_from_title(role) or UNSPECIFIED_TERM,
             link=job.url,
             date_posted=job.posted_at,
