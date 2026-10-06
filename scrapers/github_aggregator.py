@@ -1,5 +1,6 @@
 import time
 from dataclasses import replace
+from datetime import date
 
 import requests
 
@@ -56,7 +57,7 @@ def scrape_github_aggregator(listings_url: str, source: str) -> list[Job]:
                 location="; ".join(posting.get("locations") or []) or None,
                 source=source,
                 posted_at=_format_posted_at(posting.get("date_posted")),
-                term=earliest_term(posting.get("terms") or []),
+                term=earliest_term(posting.get("terms") or [], date.today()),
             )
         )
 

@@ -16,7 +16,7 @@ from listings import render, store
 from listings.normalize import canonical_key, tidy_location
 from pipeline import is_canadian, is_internship, is_new_grad
 from scrapers.companies import scrape_all_sources
-from scrapers.terms import UNSPECIFIED_TERM, term_from_title
+from scrapers.terms import UNSPECIFIED_TERM, current_term, term_from_title
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,11 @@ class SyncSummary:
                 f"{self.reopened} reopened{held}; {pushed}")
 
 
-def build_universe(jobs) -> dict[str, store.Listing]:
+def build_universe(jobs, today: date | None = None) -> dict[str, store.Listing]:
     """Every currently open Canadian co-op/internship, regardless of age. This is
     deliberately broader than what Discord gets (which is limited to the last
-    few days): the public repo is a full list. New grad roles are out of scope."""
+    few days): the public repo is a full list. New grad roles are out of scope.
+    Terms that ended before `today` are dropped rather than shown."""
     universe: dict[str, store.Listing] = {}
     for job in jobs:
         if is_new_grad(job) or not (is_internship(job) and is_canadian(job)):
@@ -57,7 +58,7 @@ def build_universe(jobs) -> dict[str, store.Listing]:
             company=company,
             role=role,
             location=tidy_location(job.location),
-            term=job.term or term_from_title(role) or UNSPECIFIED_TERM,
+            term=current_term(job.term, today) or term_from_title(role, today) or UNSPECIFIED_TERM,
             link=job.url,
             date_posted=job.posted_at,
             source=job.source or "unknown",
@@ -115,8 +116,10 @@ def run_sync(publisher, *, now: datetime | None = None, scrape=scrape_all_source
         _restore_history(publisher, stamp)
 
     report = scrape(include_new_grad=False)
-    universe = build_universe(report.jobs)
-    cycle = store.apply_cycle(universe, report.complete, today.isoformat(), stamp)
+    universe = build_universe(report.jobs, today)
+    cycle = store.apply_cycle(
+        universe, report.complete, today.isoformat(), stamp, all_sources_complete=report.all_complete
+    )
     summary = SyncSummary(
         open_seen=len(universe), added=cycle.added, closed=cycle.closed,
         reopened=cycle.reopened, held=cycle.held_labels,

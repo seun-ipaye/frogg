@@ -21,6 +21,14 @@ CLOSE_AFTER_MISSES = 3
 GUARD_MIN_OPEN = 20
 GUARD_MIN_RATIO = 0.5
 
+# Rows restored from the published JSON after losing the DB. The public files
+# don't say which scraper found a row, so until a scrape sees it again (which
+# sets its real source) it can only be closed after a cycle where EVERY
+# source was fetched in full - otherwise one failed source would close rows
+# that are just temporarily unseen.
+RESTORED_SOURCE = "restored"
+RESTORED_LABEL = "restored"
+
 
 @dataclass(frozen=True)
 class Listing:
@@ -44,6 +52,8 @@ class CycleResult:
 
 def label_for(source: str, company: str) -> str:
     """Which scrape (see scrapers.companies.ScrapeReport.complete) produced a row."""
+    if source == RESTORED_SOURCE:
+        return RESTORED_LABEL
     return COOP_LABEL if source == COOP_SOURCE else f"{source}:{company}"
 
 
@@ -52,12 +62,16 @@ def is_empty() -> bool:
         return conn.execute("SELECT 1 FROM listings LIMIT 1").fetchone() is None
 
 
-def apply_cycle(seen: dict[str, Listing], complete: set[str], today: str, now: str) -> CycleResult:
+def apply_cycle(
+    seen: dict[str, Listing], complete: set[str], today: str, now: str, *, all_sources_complete: bool = False
+) -> CycleResult:
     """Fold one scrape cycle into the store, in a single transaction.
 
     seen: every currently open listing found this cycle, by canonical key.
     complete: labels of sources fetched in full this cycle. Only these can
     cause closures; a failed or partial source leaves its rows untouched.
+    all_sources_complete: every source was fetched in full, which is the only
+    time restored rows (source unknown) can be closed.
     """
     result = CycleResult()
     with _connect() as conn:
@@ -83,6 +97,8 @@ def apply_cycle(seen: dict[str, Listing], complete: set[str], today: str, now: s
             else:
                 trusted.add(label)
         result.held_labels = tuple(sorted(held))
+        if all_sources_complete and not held:
+            trusted.add(RESTORED_LABEL)
 
         for key, item in seen.items():
             previous = existing.get(key)
@@ -151,7 +167,7 @@ def import_rows(rows: list[dict], now: str) -> int:
                     " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
                     (canonical_key(company, role, link), company, role, row.get("location"),
                      row.get("term") or UNSPECIFIED_TERM, link, row.get("date_posted"),
-                     row.get("date_found") or now[:10], status, row.get("date_closed"), now, COOP_SOURCE),
+                     row.get("date_found") or now[:10], status, row.get("date_closed"), now, RESTORED_SOURCE),
                 )
                 imported += cursor.rowcount
             except (KeyError, TypeError, AttributeError):

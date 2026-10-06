@@ -19,7 +19,7 @@ from listings.sync import build_universe, commit_message, run_sync
 from scrapers.base import Job
 from scrapers.companies import ScrapeReport
 from scrapers.github_aggregator import COOP_LABEL, COOP_SOURCE
-from scrapers.terms import earliest_term, normalize_term, parse_term, term_from_title
+from scrapers.terms import current_term, earliest_term, normalize_term, parse_term, term_from_title
 
 TZ = ZoneInfo("America/Toronto")
 
@@ -94,6 +94,22 @@ class TermTests(unittest.TestCase):
         self.assertEqual(normalize_term("Spring 2027"), "Winter 2027")
         self.assertEqual(normalize_term("Unspecified"), "Unspecified")
 
+    def test_terms_that_already_ended_are_ignored(self):
+        october = date(2026, 10, 6)
+        self.assertIsNone(earliest_term(["Winter 2026"], october))  # stale upstream tag
+        self.assertEqual(earliest_term(["Fall 2026", "Winter 2026"], october), "Fall 2026")
+        self.assertEqual(earliest_term(["Summer 2026", "Winter 2027"], october), "Winter 2027")
+        self.assertEqual(earliest_term(["Spring 2026", "Spring 2027"], october), "Winter 2027")
+        self.assertIsNone(term_from_title("Summer 2026 Intern", october))
+        self.assertEqual(term_from_title("Fall 2026 Co-op", october), "Fall 2026")  # still running
+
+    def test_a_term_ends_after_its_last_month(self):
+        self.assertEqual(current_term("Summer 2026", date(2026, 8, 31)), "Summer 2026")
+        self.assertIsNone(current_term("Summer 2026", date(2026, 9, 1)))
+        self.assertEqual(current_term("Winter 2027", date(2027, 4, 30)), "Winter 2027")
+        self.assertIsNone(current_term("Winter 2027", date(2027, 5, 1)))
+        self.assertEqual(current_term("Fall 2026", None), "Fall 2026")  # no date: nothing filtered
+
     def test_stored_spring_rows_are_published_as_winter(self):
         files = render.render_files([row(term="Spring 2027")], date(2026, 10, 5),
                                     tracker_repo="r", interval_minutes=30, invite_url=None)
@@ -159,6 +175,32 @@ class StoreTests(TempDBTestCase):
             result = self.cycle(listings[:5], {COOP_LABEL})
         self.assertEqual(result.held_labels, (COOP_LABEL,))
         self.assertEqual(sum(1 for r in store.all_rows() if r["status"] == "closed"), 0)
+
+    def restore(self, role="Intern", link="https://hootsuite.com/1"):
+        store.import_rows([{"company": "Hootsuite", "role": role, "link": link, "status": "open"}],
+                          "2026-10-05T00:00:00+00:00")
+        return store.Listing(canonical_key("Hootsuite", role, link), "Hootsuite", role, "Toronto",
+                             "Summer 2027", link, "2026-10-01", "greenhouse")
+
+    def test_restored_rows_only_close_when_every_source_was_complete(self):
+        self.restore()
+        for _ in range(5):  # e.g. Greenhouse failed: the coop tracker alone can't close a row of unknown origin
+            store.apply_cycle({}, {COOP_LABEL}, "2026-10-05", "2026-10-05T12:00:00+00:00")
+        self.assertEqual(self.status_of("Intern"), "open")
+        for _ in range(3):
+            store.apply_cycle({}, {COOP_LABEL}, "2026-10-06", "2026-10-06T12:00:00+00:00",
+                              all_sources_complete=True)
+        self.assertEqual(self.status_of("Intern"), "closed")
+
+    def test_restored_row_takes_its_real_source_once_seen_again(self):
+        item = self.restore()
+        self.cycle([item], {COOP_LABEL, "greenhouse:Hootsuite"})
+        for _ in range(5):  # now owned by Greenhouse, so coop-only cycles never close it
+            store.apply_cycle({}, {COOP_LABEL}, "2026-10-06", "2026-10-06T12:00:00+00:00")
+        self.assertEqual(self.status_of("Intern"), "open")
+        for _ in range(3):
+            self.cycle([], {"greenhouse:Hootsuite"})
+        self.assertEqual(self.status_of("Intern"), "closed")
 
     def test_import_rows_restores_history_and_skips_malformed(self):
         rows = [
@@ -375,8 +417,8 @@ class SyncTests(TempDBTestCase):
         self.addCleanup(self.out.cleanup)
         self.publisher = LocalPublisher(self.out.name)
 
-    def run_sync(self, jobs, complete=(COOP_LABEL,), day=5):
-        return run_sync(self.publisher, now=at(day),
+    def run_sync(self, jobs, complete=(COOP_LABEL,), day=5, month=10):
+        return run_sync(self.publisher, now=at(day, month),
                         scrape=lambda include_new_grad: ScrapeReport(list(jobs), set(complete)))
 
     def test_universe_filters(self):
@@ -395,6 +437,23 @@ class SyncTests(TempDBTestCase):
                 job(company="C", url="https://c.com/1")]
         self.assertEqual(sorted(l.term for l in build_universe(jobs).values()),
                          ["Fall 2026", "Summer 2027", "Unspecified"])
+
+    def test_stale_terms_fall_back_to_title_then_unspecified(self):
+        today = date(2026, 10, 6)
+        jobs = [job(term="Winter 2026"), job(company="B", title="Winter 2027 Co-op", url="https://b.com/1",
+                                              term="Summer 2026")]
+        self.assertEqual(sorted(l.term for l in build_universe(jobs, today).values()),
+                         ["Unspecified", "Winter 2027"])
+
+    def test_stored_term_is_corrected_once_it_has_ended(self):
+        self.run_sync([job(term="Summer 2026", posted_at="2026-04-01")], day=1, month=4)
+        self.run_sync([job(term="Summer 2026", posted_at="2026-04-01")], day=5)
+        self.assertEqual(json.loads((Path(self.out.name) / "listings.json").read_text())[0]["term"], "Unspecified")
+
+    def test_scrape_report_completeness(self):
+        self.assertTrue(ScrapeReport(complete={"a", "b"}).all_complete)
+        self.assertFalse(ScrapeReport(complete={"a"}, failed={"b"}).all_complete)
+        self.assertFalse(ScrapeReport().all_complete)
 
     def test_second_identical_run_changes_nothing(self):
         first = self.run_sync([job()])
