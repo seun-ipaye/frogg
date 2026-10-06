@@ -43,6 +43,13 @@ class ScrapeReport:
     # fetch (or a truncated Workday board) is absent from this set, which is
     # what stops "returned nothing" from being mistaken for "everything closed".
     complete: set[str] = field(default_factory=set)
+    # Labels of sources that failed or came back truncated this run.
+    failed: set[str] = field(default_factory=set)
+
+    @property
+    def all_complete(self) -> bool:
+        """Every source was fetched in full (and at least one ran)."""
+        return bool(self.complete) and not self.failed
 
 
 def _try_scrape(label: str, scrape_fn, *args):
@@ -60,10 +67,13 @@ def scrape_all_sources(include_new_grad: bool = True) -> ScrapeReport:
 
     def add(label: str, jobs: list[Job] | None, complete: bool = True) -> None:
         if jobs is None:
+            report.failed.add(label)
             return
         report.jobs.extend(jobs)
         if complete:
             report.complete.add(label)
+        else:
+            report.failed.add(label)
 
     # Primary sources: community-maintained aggregators already covering
     # hundreds of companies (one for co-ops/internships, one for new grad
@@ -82,7 +92,9 @@ def scrape_all_sources(include_new_grad: bool = True) -> ScrapeReport:
     for company_name, (tenant, wd_host, site) in WORKDAY_COMPANIES.items():
         label = f"workday:{company_name}"
         result = _try_scrape(label, scrape_workday_status, company_name, tenant, wd_host, site)
-        if result is not None:
+        if result is None:
+            add(label, None)
+        else:
             add(label, result[0], complete=result[1])
     return report
 
